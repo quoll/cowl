@@ -10,4 +10,4 @@
 (import-fn prot/annotate)
 
 (import-fn impl/owl)
-(import-fn io/as-string)
+(import-fn io/->str)
