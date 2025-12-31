@@ -10,7 +10,7 @@
            [tiara.data VecMap]))
 
 (def local-id (rdf/iri "#"))
-(def initv "v0.0.1")
+(def initv "0.0.1")
 
 (def default-pre "")
 
@@ -94,9 +94,10 @@
    (let [pfxs (standardize-prefixes id (or prefixes rdf/common-prefixes))
          ont-iri (if id (localized-iri pfxs id) local-id)
          vi (as-namespace (:iri ont-iri))
-         ver-iri (localized-iri pfxs (if version
-                                       (if (str/index-of version "/")  ;; proxy for an IRI form
-                                         version
-                                         (str vi version))
-                                       (str vi initv)))]
+         ver-iri (if version
+                   (localized-iri pfxs
+                                  (if (str/index-of version "/") ;; proxy for an IRI form
+                                    version
+                                    (str vi version)))
+                   (rdf/iri (str vi initv)))]
      (->OWLDocument ont-iri ver-iri om om om mm om pfxs))))

@@ -18,7 +18,7 @@ Prefix(dcterms:=<http://purl.org/dc/terms/>)\n\n")
                   (annotate :rdfs/comment "testing \"data\" here"))]
       (is (= 2 (count (:annotations doc))))
       (is (= (str empty-id prefix-block
-                  "Ontology(<#>\n:v0.0.1\n\n"
+                  "Ontology(<#>\n<#0.0.1>\n\n"
                   "Annotation(rdfs:label \"Test doc\")\n"
                   "Annotation(rdfs:comment \"testing \\\"data\\\" here\")\n)\n")
              (->str doc))))))
