@@ -25,6 +25,16 @@
 
 (def mm data/EMPTY_MULTI_MAP)
 
+(defn pname-lname
+  "Gets a prefix-name/local-name pair for an IRI string, given the known prefix mappings.
+  Returns `nil` if no prefix matches."
+  ([s] (pname-lname rdf/common-prefixes s))
+  ([prefixes s]
+   (->> prefixes
+        (keep (fn [[_ nmsp :as pn]]
+                (when (str/starts-with? s nmsp) pn)))
+        first)))
+
 (defn localized-iri
   "Takes a full IRI form and identifies if it can be converted to a prefix/local pair using the
   provided prefix map. Uses a linear search through the namespaces.
@@ -33,27 +43,47 @@
   (if (and (instance? IRI i) (:local i))
     i
     (let [iri-str (if (string? i) i (:iri i))]
-      (if-let [[pre nmspace] (->> prefixes
-                                  (keep (fn [[_ nmsp :as pn]]
-                                          (when (str/starts-with? iri-str nmsp) pn)))
-                                  first)]
+      (if-let [[pre nmspace] (pname-lname prefixes iri-str)]
         (rdf/iri iri-str pre (subs iri-str (count nmspace)))
         (if (string? i) (rdf/iri iri-str) i)))))
 
+(defn ->iri
+  "Ensures that a value is an IRI constructing one if needed."
+  ([i] (->iri rdf/common-prefixes i))
+  ([prefixes i]
+   (cond
+     (keyword? i) (rdf/curie prefixes i)
+     (instance? IRI i) i
+     (string? i) (if-let [[pn ln] (pname-lname prefixes i)]
+                   (rdf/iri i pn ln)
+                   (rdf/iri i)))))
+
+(defn ->id
+  "Gets the ID of a object. If the object is an ID, then return it. Otherwise, extract it."
+  [o]
+  (if (map? o) (:id o) o))
+
+(deftype Annotation [prop value])
+
+(defn annotation
+  "Creates a type-marked annotation"
+  [prop value]
+  (Annotation. prop value))
 
 (defrecord ObjectProperty [id annotations super-props equivs domain range disjoints
                            fn? inverse-fn? transitive? symmetric? asymmetric?
                            reflexive? irreflexive?]
   Annotatable
+  (annotate [this {:keys [prop value]}] (update this :annotations assoc prop value))
   (annotate [this prop text] (update this :annotations assoc prop text))
   (annotate [_ id prop text]
     (throw (ex-info "Object Properties do not contain other entities" {:id id :prop prop :text text})))
   Property
-  (sub-property [this other] (update this :super-props conj other))
-  (equivalent [this other] (update this :equivs conj other))
-  (domain-of [this other] (update this :domain conj other))
-  (range-of [this other] (update this :range conj other))
-  (disjoint [this other] (update this :disjoints conj other))
+  (sub-property [this other] (update this :super-props conj (->id other)))
+  (equivalent [this other] (update this :equivs conj (->id other)))
+  (domain-of [this other] (update this :domain conj (->id other)))
+  (range-of [this other] (update this :range conj (->id other)))
+  (disjoint [this other] (update this :disjoints conj (->id other)))
   (functional [this] (assoc this :fn? true))
   ObjectPropertyProtocol
   (inverse-functional [this] (assoc this :inverse-fn? true))
@@ -101,22 +131,32 @@
 (defrecord OWLDocument [id version class-idx oprop-idx dprop-idx annotations
                         instance-idx prefixes annotation-props datatypes]
   Annotatable
+  (annotate [this {:keys [prop value]}] (update this :annotations assoc (->iri prefixes prop) value))
   (annotate [this prop text]
-    (let [new-prop (not (or (contains? owl-annotation-props prop)
-                            (contains? annotation-props prop)))]
-      (cond-> (update this :annotations assoc (rdf/curie prefixes prop) text)
-        new-prop (update :annotation-props conj prop))))
+    (let [p (->iri prefixes prop)
+          new-prop (not (or (contains? owl-annotation-props p)
+                            (contains? annotation-props p)))]
+      (cond-> (update this :annotations assoc p text)
+        new-prop (update :annotation-props conj p))))
+  (annotate [this id prop text]
+    (if-let [field (cond
+                     (contains? oprop-idx id) :oprop-idx
+                     (contains? dprop-idx id) :dprop-idx
+                     (contains? class-idx id) :class-idx
+                     :else nil)]
+      (update this field update id prot/annotate (->iri prefixes prop) text)
+      (ex-info (str "Unknown entity: " id) {:id id})))
   Document
-  (object-property [this {:keys [id annotations super-props equivs domain range disjoints] :as prop}]
-    (let [->iri #(localized-iri prefixes %)
-          annotations* (into om (map (fn [[a v]] [(->iri a) v])) (seq annotations))
+  (add-object-property [this {:keys [id annotations super-props equivs domain range disjoints] :as prop}]
+    (let [->ref #(localized-iri prefixes %)
+          annotations* (into om (map (fn [[a v]] [(->ref a) v])) (seq annotations))
           new-aprops (ominus annotation-props (keys annotations*))
           prop* (cond-> prop
-                  (seq super-props) (update :super-props mapv ->iri)
-                  (seq equivs) (update :equivs mapv ->iri)
-                  (seq domain) (update :domain mapv ->iri)
-                  (seq range) (update :range mapv ->iri)
-                  (seq disjoints) (update :disjoints mapv ->iri))]
+                  (seq super-props) (update :super-props mapv ->ref)
+                  (seq equivs) (update :equivs mapv ->ref)
+                  (seq domain) (update :domain mapv ->ref)
+                  (seq range) (update :range mapv ->ref)
+                  (seq disjoints) (update :disjoints mapv ->ref))]
       (cond-> (update this :oprop-idx update id struct-merge prop*)
         (seq new-aprops) (update :annotation-props into new-aprops))))
   Streamable
@@ -168,3 +208,11 @@
                    (rdf/iri (str vi initv)))]
      (->OWLDocument ont-iri ver-iri om om om mm om pfxs os os))))
 
+
+(defn add
+  "Adds an element to a document"
+  [doc entity]
+  (cond
+    (instance? Annotation entity) (prot/annotate doc (:prop entity) (:value entity))
+    (satisfies? ObjectPropertyProtocol entity) (prot/add-object-property doc entity)
+    :else (throw (ex-info "Cannot add unknown entity type to document" {:type (type entity) :entity entity}))))

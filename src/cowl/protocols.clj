@@ -3,10 +3,13 @@
    :author "Paula Gearon"})
 
 (defprotocol Annotatable
-  (annotate [this prop text] [this id prop text] "Annotates an object directly, or annotates a contained object"))
+  (annotate
+    [this annotation]
+    [this prop text]
+    [this id prop text] "Annotates an object directly, or annotates a contained object"))
 
 (defprotocol Document
-  (object-property [this prop] "Associates a property with this document"))
+  (add-object-property [this prop] "Associates a property with this document"))
 
 (defprotocol Property
   (sub-property [this other] "Makes this property a subproperty of another")
