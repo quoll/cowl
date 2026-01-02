@@ -5,6 +5,9 @@
 (defprotocol Annotatable
   (annotate [this prop text] [this id prop text] "Annotates an object directly, or annotates a contained object"))
 
+(defprotocol Document
+  (object-property [this prop] "Associates a property with this document"))
+
 (defprotocol Property
   (sub-property [this other] "Makes this property a subproperty of another")
   (equivalent [this other] "Declares this property the equivalent of another")
@@ -19,8 +22,7 @@
   (symmetric [this] "Declares this property to be symmetric")
   (asymmetric [this] "Declares this property to be asymmetric")
   (reflexive [this] "Declares this property to be reflexive")
-  (irreflexive [this] "Declares this property to be irreflexive")
-  )
+  (irreflexive [this] "Declares this property to be irreflexive"))
 
 (defprotocol Streamable
   (emit [this stream] "Emits this object to a stream"))

@@ -71,7 +71,7 @@
   (.write stream "\n############################\n\n"))
 
 
-(def rdfs-label (rdf/curie rdf/common-prefixes :rdfs/label))
+(def rdfs-label (rdf/curie :rdfs/label))
 
 (defn write-annotations
   [^Writer stream id annotations]

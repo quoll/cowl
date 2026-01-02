@@ -7,7 +7,6 @@
             [cowl.protocols :as prot]
             [cowl.io :as cio])
   (:import [cowl.protocols Annotatable Streamable Property ObjectPropertyProtocol Document]
-           [tiara.data VecMap]
            [quoll.rdf IRI]))
 
 (def local-id (rdf/iri "#"))
@@ -139,14 +138,6 @@
         (str base-iri "/")))
     "#"))
 
-(defn ->ordered-map
-  "Ensures that a map is an ordered map. Acts as identity if `mp` is already ordered.
-  TODO: This can be part of Tiara"
-  [mp]
-  (if (instance? VecMap mp)
-    mp
-    (into om (seq mp))))
-
 (defn standardize-prefixes
   "Standardizes a prefix list to always use the `default-pre` (empty-keyword) as the default.
   If no default prefix exists, then create one from the provided iri."
@@ -158,7 +149,7 @@
       (->> (dissoc prefixes dk)
            (into (ordered-map default-pre default)))
       (if (get prefixes default-pre)
-        (->ordered-map prefixes)
+        (ordered-map prefixes)  ;; identity if already an ordered-map
         (into (ordered-map default-pre (as-namespace iri)) prefixes)))))
 
 (defn owl
