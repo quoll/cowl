@@ -27,7 +27,7 @@
 
 (def mm data/EMPTY_MULTI_MAP)
 
-(extend-protocol Inlineable
+(extend-protocol prot/Inlineable
   Object
   (legal-inline-subprop? [_] false)
   (legal-inline-equiv-prop? [_] false)
@@ -40,9 +40,9 @@
   (object-property? [_] false))
 
 (extend-type IRI
-  Streamable
+  prot/Streamable
   (emit [i stream] (cio/write-iri stream i))
-  Inlineable
+  prot/Inlineable
   (legal-inline-subprop? [_] true)
   (legal-inline-equiv-prop? [_] true)
   (object-subproperty-expr? [_] false)
@@ -290,7 +290,7 @@
     (cio/write-prefixes stream prefixes)
     (cio/start-doc stream id version)
     (cio/write-doc-annotations stream annotations)
-    (cio/write-declarations stream (keys class-idx) (keys oprop-idx) (keys dprop-idx) annotation-props datatypes)
+    (cio/write-declarations stream (keys class-idx) (keys oprop-idx) (keys dprop-idx) annotation-props datatypes (keys instance-idx))
     (cio/write-obj-props stream (vals oprop-idx))
     (cio/end-doc stream)))
 

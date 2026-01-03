@@ -3,7 +3,7 @@
             [cowl.protocols :refer [annotate]]
             [cowl.impl :refer [owl]]
             [cowl.io :refer [start-doc end-doc write-prefixes escape write-doc-annotations
-                             write-declarations write-header write-annotations write-oprops
+                             write-declarations write-header write-annotations write-obj-props
                              ->str]])
   (:import [java.io StringWriter]))
 

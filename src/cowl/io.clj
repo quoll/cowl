@@ -4,7 +4,9 @@
   (:require [clojure.string :as str]
             [quoll.rdf :as rdf]
             [cowl.protocols :as prot :refer [emit legal-inline-subprop?]])
-  (:import [java.io Writer StringWriter]))
+  (:import [java.io Writer StringWriter]
+           [quoll.rdf IRI]
+           [cowl.protocols Streamable]))
 
 (defn write-iri
   [^Writer stream i]
@@ -54,14 +56,21 @@
 
 (defn write-doc-annotations
   [^Writer stream anns]
-  (doseq [ann anns]
-    (emit ann stream)
-    (.write stream \n)))
+  (doseq [[id ann] anns]
+    (if (instance? Streamable ann)
+      (emit ann stream)
+      (do
+        (.write stream "Annotation(")
+        (.write stream (str id))
+        (.write stream " \"")
+        (.write stream (escape ann))
+        (.write stream "\")")))
+    (.write stream "\n")))
 
 
 (defn id
   [inst]
-  (if (instance? rdf/IRI inst) inst (:id inst)))
+  (if (instance? IRI inst) inst (:id inst)))
 
 (defn write-declarations
   "Write declarations for all document entities to the stream.
