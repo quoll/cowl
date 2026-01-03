@@ -2,11 +2,11 @@
   {:doc "Base implementations for the COWL protocols"
    :author "Paula Gearon"}
   (:require [clojure.string :as str]
-            [tiara.data :as data :refer [ordered-map]]
+            [tiara.data :as data :refer [ordered-map ordered-set]]
             [quoll.rdf :as rdf]
             [cowl.protocols :as prot]
             [cowl.io :as cio])
-  (:import [cowl.protocols Annotatable Streamable Property ObjectPropertyProtocol Document]
+  (:import [cowl.protocols DocumentElement Annotatable Streamable Inlineable Property ObjectPropertyProtocol Document]
            [quoll.rdf IRI]))
 
 (def local-id (rdf/iri "#"))
@@ -14,16 +14,39 @@
 
 (def default-pre "")
 
-(def owl-annotation-props
+(def owl-annotation-keywords
   #{:rdfs/label :rdfs/comment :rdfs/seeAlso :rdfs/isDefinedBy
     :owl/versionInfo :owl/deprecated :owl/backwardCompatibleWith
     :owl/incompatibleWith :owl/priorVersion})
+
+(def owl-annotation-props (set (map rdf/curie owl-annotation-keywords)))
 
 (def om data/EMPTY_MAP)
 
 (def os data/EMPTY_SET)
 
 (def mm data/EMPTY_MULTI_MAP)
+
+(extend-protocol Inlineable
+  Object
+  (legal-inline-subprop? [_] false)
+  (legal-inline-equiv-prop? [_] false)
+  (object-subproperty-expr? [_] false)
+  (object-property? [_] false)
+  nil
+  (legal-inline-subprop? [_] false)
+  (legal-inline-equiv-prop? [_] false)
+  (object-subproperty-expr? [_] false)
+  (object-property? [_] false))
+
+(extend-type IRI
+  Streamable
+  (emit [i stream] (cio/write-iri stream i))
+  Inlineable
+  (legal-inline-subprop? [_] true)
+  (legal-inline-equiv-prop? [_] true)
+  (object-subproperty-expr? [_] false)
+  (object-property? [_] true))
 
 (defn pname-lname
   "Gets a prefix-name/local-name pair for an IRI string, given the known prefix mappings.
@@ -58,32 +81,63 @@
                    (rdf/iri i pn ln)
                    (rdf/iri i)))))
 
-(defn ->id
-  "Gets the ID of a object. If the object is an ID, then return it. Otherwise, extract it."
-  [o]
-  (if (map? o) (:id o) o))
-
-(deftype Annotation [prop value])
+(defrecord Annotation [annotations prop value]
+  Annotatable
+  (annotate [this annotation] (update this :annotations conj annotation))
+  Streamable
+  (emit [this stream] (cio/write-annotation stream this)))
 
 (defn annotation
   "Creates a type-marked annotation"
-  [prop value]
-  (Annotation. prop value))
+  ([prop value]
+   (->Annotation os prop value))
+  ([ann prop value]
+   (->Annotation (ordered-set ann) prop value))
+  ([f s t & r]
+   (let [lenr (dec (count r))
+         anns (into (ordered-set f s) (when (pos? lenr) (take lenr (cons t r))))
+         [prop value] (if (zero? lenr) (ordered-set t (first r)) (drop (dec lenr) r))]
+     (->Annotation (into os anns) prop value))))
+
+(defn annotations
+  "Get all annotations from the head of a seq"
+  [s]
+  (take-while #(instance? Annotation %) s))
+
+(defn mapos
+  "Maps all elements in an ordered set, with the result being an ordered set"
+  [f s]
+  (into os (map f) s))
+
+(defn recontextualize-element
+  [refn elt]
+  (if (satisfies? DocumentElement elt)
+    (prot/recontextualize elt refn)
+    (refn elt)))
 
 (defrecord ObjectProperty [id annotations super-props equivs domain range disjoints
                            fn? inverse-fn? transitive? symmetric? asymmetric?
                            reflexive? irreflexive?]
+  DocumentElement
+  (recontextualize [this refn]
+    (let [update-element #(recontextualize-element refn %)]
+      (cond-> this
+        (seq super-props) (update :super-props mapos update-element)
+        (seq equivs) (update :equivs mapos update-element)
+        (seq domain) (update :domain mapos update-element)
+        (seq range) (update :range mapos update-element)
+        (seq disjoints) (update :disjoints mapos update-element))))
   Annotatable
   (annotate [this {:keys [prop value]}] (update this :annotations assoc prop value))
   (annotate [this prop text] (update this :annotations assoc prop text))
   (annotate [_ id prop text]
     (throw (ex-info "Object Properties do not contain other entities" {:id id :prop prop :text text})))
   Property
-  (sub-property [this other] (update this :super-props conj (->id other)))
-  (equivalent [this other] (update this :equivs conj (->id other)))
-  (domain-of [this other] (update this :domain conj (->id other)))
-  (range-of [this other] (update this :range conj (->id other)))
-  (disjoint [this other] (update this :disjoints conj (->id other)))
+  (sub-property [this other] (update this :super-props conj other))
+  (equivalent [this other] (update this :equivs conj other))
+  (domain-of [this other] (update this :domain conj other))
+  (range-of [this other] (update this :range conj other))
+  (disjoint [this other] (update this :disjoints conj other))
   (functional [this] (assoc this :fn? true))
   ObjectPropertyProtocol
   (inverse-functional [this] (assoc this :inverse-fn? true))
@@ -91,11 +145,88 @@
   (symmetric [this] (assoc this :symmetric? true))
   (asymmetric [this] (assoc this :asymmetric? true))
   (reflexive [this] (assoc this :reflexive? true))
-  (irreflexive [this] (assoc this :irreflexive? true)))
+  (irreflexive [this] (assoc this :irreflexive? true))
+  Streamable
+  (emit [this stream] (cio/write-obj-prop stream this)))
 
 (defn obj-property
   [id]
   (->ObjectProperty id mm os os os os os false false false false false false false))
+
+(defrecord ObjectPropertyChain [props]
+  Inlineable
+  (legal-inline-subprop? [_] true)
+  (legal-inline-equiv-prop? [_] false)
+  (object-subproperty-expr? [_] false)
+  (object-property? [_] false)
+  Streamable
+  (emit [_ stream] (cio/write-property-chain stream props)))
+
+(defn property-chain
+  [& props]
+  (->ObjectPropertyChain props))
+
+(defrecord SubObjectPropertyOf [annotations child parent]
+  Inlineable
+  (legal-inline-subprop? [_] false)
+  (legal-inline-equiv-prop? [_] false)
+  (object-subproperty-expr? [_] true)
+  (object-property? [_] false)
+  Streamable
+  (emit [this stream] (cio/write-sub-object-property stream this)))
+
+(defn sub-object-property
+  "Accepts either child and a list of parents, with an optional annotation as the first argument"
+  [& args]
+  (let [anns (annotations args)
+        [child parent & r] (drop (count anns) args)]
+    (when (seq r)
+      (throw (ex-info "Unexpected extra arguments to sub-object-property" {:child child :parent parent :extra r})))
+    (->SubObjectPropertyOf anns child parent)))
+
+(defrecord InverseObjectProperty [annotations prop]
+  Inlineable
+  (legal-inline-subprop? [_] true)
+  (legal-inline-equiv-prop? [_] false)
+  (object-subproperty-expr? [_] false)
+  (object-property? [_] true)
+  Streamable
+  (emit [this stream] (cio/write-inverse-property stream this)))
+
+(defn inverse-obj-prop
+  [& args]
+  (let [anns (annotations args)]
+    (->InverseObjectProperty anns (drop (count anns) args))))
+
+(defrecord EquivalentObjectProperties [annotations id props]
+  Inlineable
+  (legal-inline-subprop? [_] true)
+  (legal-inline-equiv-prop? [_] false)
+  (object-subproperty-expr? [_] false)
+  (object-property? [_] false)
+  Streamable
+  (emit [this stream] (cio/write-rel-properties stream :equiv :obj this)))
+
+(defn equiv-obj-props
+  [& props]
+  (let [anns (annotations props)
+        [id equivs] (drop (count anns) props)]
+    (->EquivalentObjectProperties anns id equivs)))
+
+(defrecord DisjointObjectProperties [annotations id props]
+  Inlineable
+  (legal-inline-subprop? [_] false)
+  (legal-inline-equiv-prop? [_] false)
+  (object-subproperty-expr? [_] false)
+  (object-property? [_] false)
+  Streamable
+  (emit [this stream] (cio/write-rel-properties stream :disjoint :obj this)))
+
+(defn disjoint-obj-props
+  [& props]
+  (let [anns (annotations props)
+        [id equivs] (drop (count anns) props)]
+    (->DisjointObjectProperties anns id equivs)))
 
 (defn check
   "Test that a value is one of a known set"
@@ -129,7 +260,7 @@
           struct1 struct2))
 
 (defrecord OWLDocument [id version class-idx oprop-idx dprop-idx annotations
-                        instance-idx prefixes annotation-props datatypes]
+                        instance-idx prefixes annotation-props annotation-axioms datatypes]
   Annotatable
   (annotate [this {:keys [prop value]}] (update this :annotations assoc (->iri prefixes prop) value))
   (annotate [this prop text]
@@ -151,12 +282,7 @@
     (let [->ref #(localized-iri prefixes %)
           annotations* (into om (map (fn [[a v]] [(->ref a) v])) (seq annotations))
           new-aprops (ominus annotation-props (keys annotations*))
-          prop* (cond-> prop
-                  (seq super-props) (update :super-props mapv ->ref)
-                  (seq equivs) (update :equivs mapv ->ref)
-                  (seq domain) (update :domain mapv ->ref)
-                  (seq range) (update :range mapv ->ref)
-                  (seq disjoints) (update :disjoints mapv ->ref))]
+          prop* (prot/recontextualize prop ->ref)]
       (cond-> (update this :oprop-idx update id struct-merge prop*)
         (seq new-aprops) (update :annotation-props into new-aprops))))
   Streamable
@@ -165,7 +291,7 @@
     (cio/start-doc stream id version)
     (cio/write-doc-annotations stream annotations)
     (cio/write-declarations stream (keys class-idx) (keys oprop-idx) (keys dprop-idx) annotation-props datatypes)
-    (cio/write-oprops stream oprop-idx)
+    (cio/write-obj-props stream (vals oprop-idx))
     (cio/end-doc stream)))
 
 (defn as-namespace
@@ -206,7 +332,7 @@
                                     version
                                     (str vi version)))
                    (rdf/iri (str vi initv)))]
-     (->OWLDocument ont-iri ver-iri om om om mm om pfxs os os))))
+     (->OWLDocument ont-iri ver-iri om om om mm om pfxs os os os))))
 
 
 (defn add

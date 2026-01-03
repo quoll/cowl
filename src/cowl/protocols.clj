@@ -2,6 +2,9 @@
   {:doc "Protocols for COWL, implemented in other namespaces"
    :author "Paula Gearon"})
 
+(defprotocol DocumentElement
+  (recontextualize [this refn] "Update all references to use the context applied in the recontextualize function"))
+
 (defprotocol Annotatable
   (annotate
     [this annotation]
@@ -9,7 +12,9 @@
     [this id prop text] "Annotates an object directly, or annotates a contained object"))
 
 (defprotocol Document
-  (add-object-property [this prop] "Associates a property with this document"))
+  (add-object-property [this prop] "Associates a property with this document")
+  ;; (add-annotation-axiom [this ann-assertion] "Associates an annotation axiom with this document")
+  )
 
 (defprotocol Property
   (sub-property [this other] "Makes this property a subproperty of another")
@@ -26,6 +31,13 @@
   (asymmetric [this] "Declares this property to be asymmetric")
   (reflexive [this] "Declares this property to be reflexive")
   (irreflexive [this] "Declares this property to be irreflexive"))
+
+
+(defprotocol Inlineable
+  (legal-inline-subprop? [this] "Indicates if this object is legal as a subproperty")
+  (legal-inline-equiv-prop? [this] "Indicates if this object is legal as an equivalent property")
+  (object-subproperty-expr? [this] "Indicates an object subproperty expression")
+  (object-property? [this] "Indicates a valid object property"))
 
 (defprotocol Streamable
   (emit [this stream] "Emits this object to a stream"))
