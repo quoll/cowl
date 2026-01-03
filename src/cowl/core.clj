@@ -1,7 +1,5 @@
 (ns cowl.core
-  (:require [tiara.data :as data :refer [ordered-map]]
-            [quoll.rdf :as rdf]
-            [cowl.protocols :as prot]
+  (:require [cowl.protocols :as prot]
             [cowl.impl :as impl]
             [cowl.io :as io]
             [cowl.util :as util :refer [import-fn]])
@@ -10,4 +8,7 @@
 (import-fn prot/annotate)
 
 (import-fn impl/owl)
+(import-fn impl/add)
+(import-fn impl/annotation)
+(import-fn impl/obj-property)
 (import-fn io/->str)
