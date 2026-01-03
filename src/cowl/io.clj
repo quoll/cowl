@@ -225,11 +225,20 @@
      (emit stream prop)
      (.write stream ")\n"))))
 
+(defn write-inverses
+  [^Writer stream prop inverses]
+  (doseq [inv inverses]
+    (.write "InverseObjectProperties(")
+    (.write (emit stream prop))
+    (.write " ")
+    (.write (emit stream inv))
+    (.write ")\n")))
+
 (defn write-obj-prop
   "Writes a document-level ObjectProperty.
   This is a series of all the ObjectPropertyAxioms about a single object property."
   [^Writer stream oprop]
-  (let [[id {:keys [annotations super-props equivs domain range disjoints fn? inverse-fn? transitive?
+  (let [[id {:keys [annotations super-props equivs domain range disjoints inverses fn? inverse-fn? transitive?
                     symmetric? asymmetric? reflexive? irreflexive?]}] oprop]
     (.write stream (str "\n# Object Property: " id))
     (if-let [label (get annotations rdfs-label)]
@@ -242,6 +251,7 @@
     (write-doc-x-properties stream :disjoint :obj id disjoints)
     (write-underlying-set stream :domain :obj id domain)
     (write-underlying-set stream :range :obj id range)
+    (write-inverses stream id inverses)
     (when fn? (write-prop-attr stream id :fn fn?))
     (when inverse-fn? (write-prop-attr stream id :inverse-fn inverse-fn?))
     (when transitive? (write-prop-attr stream id :transitive transitive?))
