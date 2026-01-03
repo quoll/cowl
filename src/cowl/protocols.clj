@@ -5,11 +5,15 @@
 (defprotocol DocumentElement
   (recontextualize [this refn] "Update all references to use the context applied in the recontextualize function"))
 
+(defprotocol Element
+  (id [this] "Returns the ID of the element, or `nil` if one does not exist"))
+
 (defprotocol Annotatable
   (annotate
     [this annotation]
     [this prop text]
-    [this id prop text] "Annotates an object directly, or annotates a contained object"))
+    [this id prop text] "Annotates an object directly, or annotates a contained object")
+  (get-annotations [this] "Retrieve the annotations of this object"))
 
 (defprotocol Document
   (add-object-property [this prop] "Associates a property with this document")
@@ -20,8 +24,9 @@
   (sub-property [this other] "Makes this property a subproperty of another")
   (equivalent [this other] "Declares this property the equivalent of another")
   (domain-of [this other] "Declares which types this property applies to")
-  (range-of [this other] "Declares which types thie property can reference")
+  (range-of [this other] "Declares which types this property can reference")
   (disjoint [this other] "Declares that no two entities can be joined by this property")
+  (inverse [this other] "Declares that this property is the inverse of another")
   (functional [this] "Declares this property to be functional"))
 
 (defprotocol ObjectPropertyProtocol

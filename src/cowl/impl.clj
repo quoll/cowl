@@ -27,6 +27,18 @@
 
 (def mm data/EMPTY_MULTI_MAP)
 
+(extend-protocol prot/Element
+  Object
+  (id [this] (:id this))
+  nil
+  (id [_] nil)
+  IRI
+  (id [this] this)
+  String
+  (id [this] (rdf/iri this))
+  clojure.lang.Keyword
+  (id [this] this))
+
 (extend-protocol prot/Inlineable
   Object
   (legal-inline-subprop? [_] false)
@@ -90,7 +102,7 @@
 (defn annotation
   "Creates a type-marked annotation"
   ([prop value]
-   (->Annotation os prop value))
+   (->Annotation nil prop value))
   ([ann prop value]
    (->Annotation (ordered-set ann) prop value))
   ([f s t & r]
@@ -104,10 +116,31 @@
   [s]
   (take-while #(instance? Annotation %) s))
 
+(defn retrieve-annotation-props
+  "Recursively finds all annotations from an expression"
+  ([acc expr]
+   (if (nil? expr)
+     acc
+     (if (sequential? expr)
+       (reduce retrieve-annotation-props acc expr)
+       (let [acc (if (satisfies? Annotatable expr)
+                   (retrieve-annotation-props acc (prot/get-annotations expr))
+                   acc)]
+         (if (instance? Annotation acc)
+           (conj acc (:prop acc))
+           acc)))))
+  ([expr]
+   (retrieve-annotation-props os expr)))
+
 (defn mapos
   "Maps all elements in an ordered set, with the result being an ordered set"
   [f s]
   (into os (map f) s))
+
+(defn remap
+  "Maps all key/value pairs in an ordered map, with the result being an ordered map"
+  [f m]
+  (into om (map (juxt f f)) m))
 
 (defn recontextualize-element
   [refn elt]
@@ -115,29 +148,48 @@
     (prot/recontextualize elt refn)
     (refn elt)))
 
-(defrecord ObjectProperty [id annotations super-props equivs domain range disjoints
+;; id: IRI or InverseObjectProperty
+;; annotations: MultiMap
+;; super-aprops: OrderedSet
+;; equivs: OrderedSet
+;; domain: OrderedSet
+;; range: OrderedSet
+;; disjoints: OrderedSet
+;; inverses: OrderedSet
+;; fn? inverse-fn? transitive? symmetric? asymmetric? reflexive? irreflexive?: nil or true/annotation
+(defrecord ObjectProperty [id annotations super-props equivs domain range disjoints inverses
                            fn? inverse-fn? transitive? symmetric? asymmetric?
                            reflexive? irreflexive?]
   DocumentElement
   (recontextualize [this refn]
     (let [update-element #(recontextualize-element refn %)]
-      (cond-> this
+      (cond-> (update this :id update-element)
         (seq super-props) (update :super-props mapos update-element)
         (seq equivs) (update :equivs mapos update-element)
         (seq domain) (update :domain mapos update-element)
         (seq range) (update :range mapos update-element)
-        (seq disjoints) (update :disjoints mapos update-element))))
+        (seq disjoints) (update :disjoints mapos update-element)
+        (seq inverses) (update :inverses mapos update-element)
+        (sequential? fn?) (update :fn? mapos update-element)
+        (sequential? inverse-fn?) (update :inverse-fn? mapos update-element)
+        (sequential? transitive?) (update :transitive? mapos update-element)
+        (sequential? symmetric?) (update :symmetric? mapos update-element)
+        (sequential? asymmetric?) (update :asymmetric? mapos update-element)
+        (sequential? reflexive?) (update :reflexive? mapos update-element)
+        (sequential? irreflexive?) (update :irreflexive? mapos update-element))))
   Annotatable
-  (annotate [this {:keys [prop value]}] (update this :annotations assoc prop value))
+  (annotate [this {:keys [prop] :as ann}] (update this :annotations assoc prop ann))
   (annotate [this prop text] (update this :annotations assoc prop text))
   (annotate [_ id prop text]
     (throw (ex-info "Object Properties do not contain other entities" {:id id :prop prop :text text})))
+  (get-annotations [_] (vals annotations))
   Property
   (sub-property [this other] (update this :super-props conj other))
   (equivalent [this other] (update this :equivs conj other))
   (domain-of [this other] (update this :domain conj other))
   (range-of [this other] (update this :range conj other))
   (disjoint [this other] (update this :disjoints conj other))
+  (inverse [this other] (update this :inverses conj other))
   (functional [this] (assoc this :fn? true))
   ObjectPropertyProtocol
   (inverse-functional [this] (assoc this :inverse-fn? true))
@@ -151,7 +203,7 @@
 
 (defn obj-property
   [id]
-  (->ObjectProperty id mm os os os os os false false false false false false false))
+  (->ObjectProperty id mm os os os os os os nil nil nil nil nil nil nil))
 
 (defrecord ObjectPropertyChain [props]
   Inlineable
@@ -262,7 +314,12 @@
 (defrecord OWLDocument [id version class-idx oprop-idx dprop-idx annotations
                         instance-idx prefixes annotation-props annotation-axioms datatypes]
   Annotatable
-  (annotate [this {:keys [prop value]}] (update this :annotations assoc (->iri prefixes prop) value))
+  (annotate [this ann]
+    (let [ann* (prot/recontextualize ann #(->iri prefixes %))
+          property (:prop ann*)
+          new-ann-props (ominus annotation-props (retrieve-annotation-props ann*))]
+      (cond-> (update this :annotations assoc property ann*)
+        (seq new-ann-props) (update :annotation-props into new-ann-props))))
   (annotate [this prop text]
     (let [p (->iri prefixes prop)
           new-prop (not (or (contains? owl-annotation-props p)
@@ -277,12 +334,13 @@
                      :else nil)]
       (update this field update id prot/annotate (->iri prefixes prop) text)
       (ex-info (str "Unknown entity: " id) {:id id})))
+  (get-annotations [_] (map (fn [[k v]] (if (string? v) (annotation k v) v)) annotations))
   Document
-  (add-object-property [this {:keys [id annotations super-props equivs domain range disjoints] :as prop}]
+  (add-object-property [this {:keys [id] :as prop}]
     (let [->ref #(localized-iri prefixes %)
-          annotations* (into om (map (fn [[a v]] [(->ref a) v])) (seq annotations))
-          new-aprops (ominus annotation-props (keys annotations*))
-          prop* (prot/recontextualize prop ->ref)]
+          prop* (prot/recontextualize prop ->ref)
+          annotation-props* (into os (map (comp first ->ref)) (retrieve-annotation-props prop*))
+          new-aprops (ominus annotation-props annotation-props*)]
       (cond-> (update this :oprop-idx update id struct-merge prop*)
         (seq new-aprops) (update :annotation-props into new-aprops))))
   Streamable
