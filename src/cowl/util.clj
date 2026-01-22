@@ -3,10 +3,11 @@
    :author "Paula Gearon"})
 
 (defmacro import-fn
-  "Imports a function from another namespace. Loosely copied from Potemkin by Zachary Tellman."
-  [s]
+  "Imports a function from another namespace. Optionally allows an alias instead of the original name.
+  Loosely copied from Potemkin by Zachary Tellman."
+  [s & [n]]
   (let [f (resolve s)
-        n (symbol (name s))
+        n (if n (symbol (name n)) (symbol (name s)))
         m (meta f)
         p (:protocol m)]
     (when-not f (throw (ex-info (str "Uknown symbol: " s) {:symbol s})))
@@ -18,3 +19,11 @@
       `(let [f# (resolve '~s)]
          (def ~n (deref f#))
          (alter-meta! (var ~n) merge (dissoc (meta f#) :name))))))
+
+(defn zip
+  [& args]
+  (apply map vector args))
+
+(defn zipv
+  [& args]
+  (apply mapv vector args))

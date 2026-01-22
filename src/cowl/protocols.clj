@@ -3,9 +3,12 @@
    :author "Paula Gearon"})
 
 (defprotocol DocumentElement
-  (recontextualize [this refn] "Update all references to use the context applied in the recontextualize function"))
+  (recontextualize [this refn] "Update all references to use the context applied in the recontextualize function")
+  (type-label [this] "The label for this entity type, as description in the Functional Syntax specification")
+  (add-to-parent [this parent] "Adds this element to a parent element. Types can only be added to a small number of parent types, which is why dispatch is done through children.")
+  (add-to-doc [this doc] "Adds this element to a document. For Classes and Properties, then this is equivalent to add-to-parent."))
 
-(defprotocol Element
+(defprotocol AddressableElement
   (id [this] "Returns the ID of the element, or `nil` if one does not exist"))
 
 (defprotocol Annotatable
@@ -16,9 +19,13 @@
   (get-annotations [this] "Retrieve the annotations of this object"))
 
 (defprotocol Document
-  (add-object-property [this prop] "Associates a property with this document")
+  (add-object-property [this prop] "Associates an object property with this document")
+  (add-data-property [this prop] "Associates a data property with this document")
+  (add-class [this cls] "Associates a class with this document")
   ;; (add-annotation-axiom [this ann-assertion] "Associates an annotation axiom with this document")
-  )
+  (get-object-property [this id] "Retrieves the object property associated with an id")
+  (get-data-property [this id] "Retrieves the data property associated with an id")
+  (get-class [this id] "Retrieves the class associated with an id"))
 
 (defprotocol Property
   (sub-property [this other] "Makes this property a subproperty of another")
@@ -26,16 +33,16 @@
   (domain-of [this other] "Declares which types this property applies to")
   (range-of [this other] "Declares which types this property can reference")
   (disjoint [this other] "Declares that no two entities can be joined by this property")
-  (inverse [this other] "Declares that this property is the inverse of another")
-  (functional [this] "Declares this property to be functional"))
+  (functional [this] [this annotations] "Declares this property to be functional"))
 
 (defprotocol ObjectPropertyProtocol
-  (inverse-functional [this] "Declares this property to be inverse functional")
-  (transitive [this] "Declares this property to be transitive")
-  (symmetric [this] "Declares this property to be symmetric")
-  (asymmetric [this] "Declares this property to be asymmetric")
-  (reflexive [this] "Declares this property to be reflexive")
-  (irreflexive [this] "Declares this property to be irreflexive"))
+  (inverse [this other] "Declares that this property is the inverse of another")
+  (inverse-functional [this] [this annotations] "Declares this property to be inverse functional")
+  (transitive [this] [this annotations] "Declares this property to be transitive")
+  (symmetric [this] [this annotations] "Declares this property to be symmetric")
+  (asymmetric [this] [this annotations] "Declares this property to be asymmetric")
+  (reflexive [this] [this annotations] "Declares this property to be reflexive")
+  (irreflexive [this] [this annotations] "Declares this property to be irreflexive"))
 
 
 (defprotocol Inlineable
@@ -44,5 +51,5 @@
   (object-subproperty-expr? [this] "Indicates an object subproperty expression")
   (object-property? [this] "Indicates a valid object property"))
 
-(defprotocol Streamable
-  (emit [this stream] "Emits this object to a stream"))
+(defprotocol TTLStreamable
+  (ttl-emit [this stream] "Emits this object to a stream"))

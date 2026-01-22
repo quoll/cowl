@@ -3,10 +3,10 @@
    :author "Paula Gearon"}
   (:require [clojure.string :as str]
             [quoll.rdf :as rdf]
-            [cowl.protocols :as prot :refer [emit legal-inline-subprop? id]])
+            [cowl.protocols :as prot :refer [ttl-emit legal-inline-subprop? id]])
   (:import [java.io Writer StringWriter]
            [quoll.rdf IRI]
-           [cowl.protocols Streamable]))
+           [cowl.protocols TTLStreamable]))
 
 (defn write-iri
   [^Writer stream i]
@@ -24,7 +24,6 @@
 
 (defn write-prefixes
   [^Writer stream prefixes]
-  ()
   (doseq [[pre nmsp] prefixes]
     (.write stream "Prefix(")
     (.write stream (name pre))
@@ -42,7 +41,7 @@
   [^Writer stream {:keys [annotations prop value]}]
   (.write stream "Annotation(")
   (doseq [ann annotations]
-    (emit ann stream)
+    (ttl-emit ann stream)
     (.write stream \space))
   (.write stream (str prop))
   (.write stream " \"")
@@ -53,22 +52,15 @@
   "Writes a series of `Annotation` objects, for embedding in other objects"
   [^Writer stream anns]
   (doseq [ann anns]
-    (emit ann stream)
+    (ttl-emit ann stream)
     (.write stream \space)))
 
 (defn write-doc-annotations
   "Writes a series of annotations, within a document (line separated).
   Document annotations may be property/value or `Annotation` objects"
   [^Writer stream anns]
-  (doseq [[prop ann] anns]
-    (if (string? ann)
-      (do
-        (.write stream "Annotation(")
-        (.write stream (str prop))
-        (.write stream " \"")
-        (.write stream (escape ann))
-        (.write stream "\")"))
-      (emit ann stream))
+  (doseq [[_ ann] anns]
+    (ttl-emit ann stream)
     (.write stream "\n")))
 
 (defn write-declarations
@@ -112,13 +104,12 @@
 (def rdfs-label (rdf/curie :rdfs/label))
 
 (defn write-annotation-assertions
-  [^Writer stream id annotations]
-  (doseq [[p v] annotations]
-    (if (string? v)
-      (do
-        (.write stream "AnnotationAssertion(")
-        (.write stream (str p \space id \space \" (escape v) "\")\n")))
-      (emit stream v))))
+  [^Writer stream id anns]
+  (doseq [{:keys [annotations prop value]} anns]
+    (.write stream "AnnotationAssertion(")
+    (doseq [a annotations]
+      (ttl-emit a stream))
+    (.write stream (str prop \space id \space \" (escape value) "\")\n"))))
 
 (def property-labels {:data "Data" :obj "Object"})
 
@@ -133,9 +124,9 @@
   (write-annotations stream (vals annotations))
   (when-not (legal-inline-subprop? child)
     (throw (ex-info "Illegal complex property declared as a subproperty" {:child child :parents parent})))
-  (emit child stream)
+  (ttl-emit child stream)
   (.write stream \space)
-  (emit parent stream)
+  (ttl-emit parent stream)
   (.write stream ")\n"))
 
 (defn write-sub-object-property 
@@ -153,9 +144,9 @@
           (.write stream label)
           (when-not (legal-inline-subprop? child)
             (throw (ex-info "Illegal complex property declared as a subproperty" {:child child :parent supprop})))
-          (emit child stream)
+          (ttl-emit child stream)
           (.write stream \space)
-          (emit supprop stream)
+          (ttl-emit supprop stream)
           (.write stream ")\n"))))))
 
 (defn write-inverse-property
@@ -170,10 +161,10 @@
   [^Writer stream label {:keys [annotations id props]}]
   (.write stream label)
   (write-annotations stream (vals annotations))
-  (emit id stream)
+  (ttl-emit id stream)
   (doseq [prop props]
     (.write stream \space)
-    (emit prop stream))
+    (ttl-emit prop stream))
   (.write stream ")\n"))
 
 
@@ -188,21 +179,21 @@
       (if (prot/object-property? equiv)
         (do  ;; an explicit list of object, write ourselves
           (.write stream label)
-          (emit prop stream)
+          (ttl-emit prop stream)
           (doseq [p equiv]
             (.write stream \space)
-            (emit p stream))
+            (ttl-emit p stream))
           (.write stream ")\n"))
         ;; an relation statement. It knows how to write itself, including annotations
-        (emit equiv stream)))))
+        (ttl-emit equiv stream)))))
 
 (defn write-underlying-set
   [^Writer stream dr prop-type prop drset]
   (let [label (str (property-labels prop-type) "Property" (domain-range-labels dr) "(")]
     (doseq [uset drset]
       (.write stream label)
-      (emit stream prop)
-      (emit uset stream)
+      (ttl-emit stream prop)
+      (ttl-emit uset stream)
       (.write stream ")\n"))))
 
 (def prop-attr-labels
@@ -222,17 +213,22 @@
      (.write stream label)
      (when (sequential? val)
        (write-annotations stream val))
-     (emit stream prop)
+     (ttl-emit stream prop)
      (.write stream ")\n"))))
 
 (defn write-inverses
   [^Writer stream prop inverses]
   (doseq [inv inverses]
     (.write "InverseObjectProperties(")
-    (.write (emit stream prop))
+    (ttl-emit stream prop)
     (.write " ")
-    (.write (emit stream inv))
+    (ttl-emit stream inv)
     (.write ")\n")))
+
+(defn scan
+  "Searches a seq of objects, looking for the first one whose `attr` matches k"
+  [s attr k]
+  (first (filter #(= k (get attr %)) s)))
 
 (defn write-obj-prop
   "Writes a document-level ObjectProperty.
@@ -241,11 +237,11 @@
   (let [[id {:keys [annotations super-props equivs domain range disjoints inverses fn? inverse-fn? transitive?
                     symmetric? asymmetric? reflexive? irreflexive?]}] oprop]
     (.write stream (str "\n# Object Property: " id))
-    (if-let [label (get annotations rdfs-label)]
+    (if-let [label (:value (scan annotations :prop rdfs-label))]
       (.write stream (str "(" label  ")\n\n"))
       (.write stream "\n\n"))
     ;; At the document level, annotations are not usually written inside the property definition
-    (write-annotation-assertions stream id annotations)
+    (write-annotation-assertions stream id (:annotations annotations))
     (write-sub-properties stream :obj id super-props)
     (write-doc-x-properties stream :equiv :obj id equivs)
     (write-doc-x-properties stream :disjoint :obj id disjoints)
@@ -270,14 +266,14 @@
   [^Writer stream props]
   (when-let [[f & r] (seq props)]
     (.write stream "ObjectPropertyChain(")
-    (emit f stream)
+    (ttl-emit f stream)
     (doseq [prop r]
       (.write stream \space)
-      (emit prop stream))
+      (ttl-emit prop stream))
     (.write stream \))))
 
 (defn ->str
   [streamable]
   (let [s (StringWriter.)]
-    (emit streamable s)
+    (ttl-emit streamable s)
     (str s)))

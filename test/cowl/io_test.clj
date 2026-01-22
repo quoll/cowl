@@ -39,7 +39,6 @@ Prefix(dcterms:=<http://purl.org/dc/terms/>)\n\n")
     (let [doc (-> (owl nil nil nil)
                   (annotate :rdfs/label "Test doc")
                   (annotate :rdfs/comment "testing \"data\" here"))]
-      (println doc)
       (is (= (str empty-id prefix-block
                   "Ontology(<#>\n<#0.0.1>\n\n"
                   "Annotation(rdfs:label \"Test doc\")\n"
