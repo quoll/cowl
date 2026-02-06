@@ -6,12 +6,12 @@
             [quoll.rdf :as rdf]
             [cowl.protocols :as prot]
             [cowl.io :as cio]
-            [cowl.impl.common :as common]
+            [cowl.impl.common :as common :refer [om os mm]]
             [cowl.impl.object-prop]
             [cowl.impl.data-prop]
             [cowl.impl.classes])
-  (:import [cowl.protocols DocumentElement AddressableElement Annotatable TTLStreamable Inlineable Property
-            ObjectPropertyProtocol Document]
+  (:import [cowl.protocols DocumentElement AddressableElement Annotatable AnnotationTest TTLStreamable Inlineable
+            Property ObjectPropertyProtocol Document ClassExpression]
            [quoll.rdf IRI]
            [cowl.impl.object_prop ObjectProperty SubObjectPropertyOf ObjectPropertyChain InverseObjectProperties
             ObjectInverseOf EquivalentObjectProperties DisjointObjectProperties ObjectPropertyDomain
@@ -19,167 +19,12 @@
             IrreflexiveObjectProperty SymmetricObjectProperty AsymmetricObjectProperty TransitiveObjectProperty]
            [cowl.impl.data_prop DataProperty SubDataPropertyOf EquivalentDataProperties DisjointDataProperties
             DataPropertyDomain DataPropertyRange FunctionalDataProperty]
-           [cowl.impl.classes OWLClass]))
+           [cowl.impl.classes OWLClass ObjectIntersectionOf ObjectUnionOf ObjectComplementOf ObjectOneOf
+            ObjectSomeValuesFrom ObjectAllValuesFrom ObjectHasValue ObjectHasSelf
+            ObjectMinCardinality ObjectMaxCardinality ObjectExactCardinality
+            DataSomeValuesFrom DataAllValuesFrom DataHasValue
+            DataMinCardinality DataMaxCardinality DataExactCardinality]))
 
-(def local-id (rdf/iri "#"))
-(def initv "0.0.1")
-
-(def default-pre "")
-
-(def owl-annotation-keywords
-  #{:rdfs/label :rdfs/comment :rdfs/seeAlso :rdfs/isDefinedBy
-    :owl/versionInfo :owl/deprecated :owl/backwardCompatibleWith
-    :owl/incompatibleWith :owl/priorVersion})
-
-(def owl-annotation-props (set (map rdf/curie owl-annotation-keywords)))
-
-(def om common/om)
-
-(def os common/os)
-
-(def mm common/mm)
-
-(extend-protocol prot/AddressableElement
-  Object
-  (id [this] (:id this))
-  nil
-  (id [_] nil)
-  IRI
-  (id [this] this)
-  String
-  (id [this] (rdf/iri this))
-  clojure.lang.Keyword
-  (id [this] this))
-
-(extend-protocol prot/Inlineable
-  Object
-  (legal-inline-subprop? [_] false)
-  (legal-inline-equiv-prop? [_] false)
-  (object-subproperty-expr? [_] false)
-  (object-property? [_] false)
-  nil
-  (legal-inline-subprop? [_] false)
-  (legal-inline-equiv-prop? [_] false)
-  (object-subproperty-expr? [_] false)
-  (object-property? [_] false))
-
-(extend-type IRI
-  prot/TTLStreamable
-  (ttl-emit [i stream] (cio/write-iri stream i))
-  prot/Inlineable
-  (legal-inline-subprop? [_] true)
-  (legal-inline-equiv-prop? [_] true)
-  (object-subproperty-expr? [_] false)
-  (object-property? [_] true))
-
-(defn map->maptype
-  "Maps all elements in a seqable of pairs into a map object of the provided type"
-  ([empty-map f s] (map->maptype empty-map f f s))
-  ([empty-map fk fv s]
-   (into empty-map (map #(vector (fk (first %)) (fv (second %)))) s)))
-
-(defn mapom
-  "Maps all elements in an ordered map, with the result being an ordered map"
-  ([f s] (mapom f f s))
-  ([fk fv s] (map->maptype om fk fv s)))
-
-(defn mapmm
-  "Maps all elements in a multi map, with the result being a multi map"
-  ([f s] (mapmm f f s))
-  ([fk fv s] (map->maptype mm fk fv s)))
-
-(defn pname-lname
-  "Gets a prefix-name/local-name pair for an IRI string, given the known prefix mappings.
-  Returns `nil` if no prefix matches."
-  ([s] (pname-lname rdf/common-prefixes s))
-  ([prefixes s]
-   (->> prefixes
-        (keep (fn [[_ nmsp :as pn]]
-                (when (str/starts-with? s nmsp) pn)))
-        first)))
-
-(defn localized-iri
-  "Takes a full IRI form and identifies if it can be converted to a prefix/local pair using the
-  provided prefix map. Uses a linear search through the namespaces.
-  TODO: This should be part of RuDolF."
-  [prefixes i]
-  (if (and (instance? IRI i) (:local i))
-    i
-    (let [iri-str (if (string? i) i (:iri i))]
-      (if-let [[pre nmspace] (pname-lname prefixes iri-str)]
-        (rdf/iri iri-str pre (subs iri-str (count nmspace)))
-        (if (string? i) (rdf/iri iri-str) i)))))
-
-(defn ->iri
-  "Ensures that a value is an IRI constructing one if needed."
-  ([i] (->iri rdf/common-prefixes i))
-  ([prefixes i]
-   (cond
-     (keyword? i) (rdf/curie prefixes i)
-     (instance? IRI i) i
-     (string? i) (if-let [[pn ln] (pname-lname prefixes i)]
-                   (rdf/iri i pn ln)
-                   (rdf/iri i)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Classes ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn recontextualize-element-fn
-  "Returns a function that updates document elements to use IRIs with the given prefixes"
-  [prefixes]
-  (fn refn [elt]
-    (when elt
-      (if (satisfies? DocumentElement elt)
-        (prot/recontextualize elt refn)
-        (->iri prefixes elt)))))
-
-(defrecord Annotation [annotations prop value]
-  DocumentElement
-  (type-label [_] "Annotation")
-  (recontextualize [this refn] (-> this
-                                   (update :prop refn)
-                                   (update :annotations common/value-deepmap refn)))
-  (add-to-parent [this parent] (prot/annotate parent this))
-  (add-to-doc [this doc] (prot/annotate doc this))
-  Annotatable
-  (annotate [this annotation] (update this :annotations conj annotation))
-  (annotate [this prop text] (update this :annotations conj (Annotation. nil prop text)))
-  (annotate [_ id prop text] (ex-info "Annotations do not contain other entities" {:id id :prop prop :text text}))
-  (get-annotations [_] annotations)
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-annotation stream this)))
-
-(defn annotation
-  "Creates a type-marked annotation"
-  ([prop value]
-   (->Annotation nil prop value))
-  ([ann prop value]
-   (->Annotation (ordered-set ann) prop value))
-  ([f s t & r]
-   (let [lenr (dec (count r))
-         anns (into (ordered-set f s) (when (pos? lenr) (take lenr (cons t r))))
-         [prop value] (if (zero? lenr) (ordered-set t (first r)) (drop (dec lenr) r))]
-     (->Annotation (into os anns) prop value))))
-
-(defn annotations
-  "Get all annotations from the head of a seq"
-  [s]
-  (take-while #(instance? Annotation %) s))
-
-(defn retrieve-annotation-props
-  "Recursively finds all annotations from an expression"
-  ([acc expr]
-   (if (nil? expr)
-     acc
-     (if (sequential? expr)
-       (reduce retrieve-annotation-props acc expr)
-       (let [acc (if (satisfies? Annotatable expr)
-                   (retrieve-annotation-props acc (prot/get-annotations expr))
-                   acc)]
-         (if (instance? Annotation acc)
-           (conj acc (:prop acc))
-           acc)))))
-  ([expr]
-   (retrieve-annotation-props os expr)))
 
 (defn check
   "Test that a value is one of a known set"
@@ -265,15 +110,15 @@
 (defn normalize
   "Normalize all ids in a document into IRIs according to the document prefixes"
   [{:keys [prefixes] :as document}]
-  (let [refn (recontextualize-element-fn prefixes)]
+  (let [refn (common/recontextualize-element-fn prefixes)]
     (-> document
         (update :_id refn)
         (update :version refn)
-        (update :annotations mapmm refn)
-        (update :class-idx mapom refn)
-        (update :oprop-idx mapom refn)
-        (update :dprop-idx mapom refn)
-        (update :instance-idx mapom refn)
+        (update :annotations common/mapmm refn)
+        (update :class-idx common/mapom refn)
+        (update :oprop-idx common/mapom refn)
+        (update :dprop-idx common/mapom refn)
+        (update :instance-idx common/mapom refn)
         (update :annotation-props common/mapos refn)
         (update :annotation-axioms common/mapos refn)
         (update :datatypes common/mapos refn))))
@@ -297,10 +142,10 @@
                           first)]
     (if default
       (->> (dissoc prefixes dk)
-           (into (ordered-map default-pre default)))
-      (if (get prefixes default-pre)
+           (into (ordered-map common/default-pre default)))
+      (if (get prefixes common/default-pre)
         (ordered-map prefixes)  ;; identity if already an ordered-map
-        (into (ordered-map default-pre (as-namespace iri)) prefixes)))))
+        (into (ordered-map common/default-pre (as-namespace iri)) prefixes)))))
 
 (defn add
   "Adds a child element to the provided element.
@@ -314,14 +159,14 @@
   ([id version] (ontology id version nil))
   ([id version prefixes & elements]
    (let [pfxs (standardize-prefixes id (or prefixes rdf/common-prefixes))
-         ont-iri (if id (localized-iri pfxs id) local-id)
+         ont-iri (if id (common/localized-iri pfxs id) common/local-id)
          vi (as-namespace (:iri ont-iri))
          ver-iri (if version
-                   (localized-iri pfxs
-                                  (if (str/index-of version "/") ;; proxy for an IRI form
-                                    version
-                                    (str vi version)))
-                   (rdf/iri (str vi initv)))
+                   (common/localized-iri pfxs
+                                         (if (str/index-of version "/") ;; proxy for an IRI form
+                                           version
+                                           (str vi version)))
+                   (rdf/iri (str vi common/initv)))
          doc (->Ontology ont-iri ver-iri om om om mm om pfxs os os os)]
      (reduce add doc elements))))
 

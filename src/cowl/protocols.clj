@@ -11,6 +11,9 @@
 (defprotocol AddressableElement
   (id [this] "Returns the ID of the element, or `nil` if one does not exist"))
 
+(defprotocol AnnotationTest
+  (annotation? [this] "Indicates if the element is an annotation"))
+
 (defprotocol Annotatable
   (annotate
     [this annotation]
@@ -29,10 +32,10 @@
 
 (defprotocol Property
   (sub-property [this other] "Makes this property a subproperty of another")
-  (equivalent [this other] "Declares this property the equivalent of another")
+  (equivalent-prop [this other] "Declares this property the equivalent of another")
   (domain-of [this other] "Declares which types this property applies to")
   (range-of [this other] "Declares which types this property can reference")
-  (disjoint [this other] "Declares that no two entities can be joined by this property")
+  (disjoint-prop [this other] "Declares that no two entities can be joined by this property")
   (functional [this] [this annotations] "Declares this property to be functional"))
 
 (defprotocol ObjectPropertyProtocol
@@ -50,6 +53,9 @@
   (legal-inline-equiv-prop? [this] "Indicates if this object is legal as an equivalent property")
   (object-subproperty-expr? [this] "Indicates an object subproperty expression")
   (object-property? [this] "Indicates a valid object property"))
+
+(defprotocol ClassExpression
+  (get-classes [this] "Retrieves all class IRIs from this expression, recursively descending through nested expressions"))
 
 (defprotocol TTLStreamable
   (ttl-emit [this stream] "Emits this object to a stream"))

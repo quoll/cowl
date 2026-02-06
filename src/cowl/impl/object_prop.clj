@@ -2,22 +2,17 @@
   {:doc "Object property implementations for COWL"
    :author "Paula Gearon"}
   (:require [cowl.protocols :as prot]
-            [cowl.impl.common :refer [os om prop-attr prop-bool-attr
-                                       recontextualize-annotations mapos]]
+            [cowl.impl.common :refer [os prop-attr-binary prop-attr-multi prop-bool-attr annotation annotations annotation-map
+                                      recontextualize-annotations mapos add-object-prop-to-doc]]
             [cowl.io :as cio])
   (:import [cowl.protocols DocumentElement AddressableElement Annotatable TTLStreamable Inlineable Property
             ObjectPropertyProtocol]))
 
-(defn annotations
-  "Get all annotations from the head of a seq"
-  [s]
-  (take-while #(and % (= "Annotation" (prot/type-label %))) s))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; ObjectProperties ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; {:_id (s/or IRI ObjectInverseOf)
-;;  :annotations {:annotations [ [Annotation] ]
-;;                :super-aprops [ [Annotation] ]
+;; {:prop (s/or IRI ObjectInverseOf)
+;;  :annotations {:annotations {s/keyword Annotation}
+;;                :super-props [ [Annotation] ]
 ;;                :equivs [ [Annotation] ]
 ;;                :domain [ [Annotation] ]
 ;;                :range [ [Annotation] ]
@@ -33,15 +28,15 @@
 ;;  :inverses: OrderedSet
 ;;  :fn? boolean, :inverse-fn? boolean, :transitive? boolean, :symmetric? boolean,
 ;;  :asymmetric? boolean, :reflexive? boolean, :irreflexive? boolean }
-(defrecord ObjectProperty [_id annotations super-props equivs domain range disjoints inverses
+(defrecord ObjectProperty [prop annotations super-props equivs domain range disjoints inverses
                            fn? inverse-fn? transitive? symmetric? asymmetric?
                            reflexive? irreflexive?]
   AddressableElement
-  (id [_] _id)
+  (id [_] prop)
   DocumentElement
   (type-label [_] "ObjectProperty")
   (recontextualize [this refn]
-    (cond-> (update this :_id refn)
+    (cond-> (update this :prop refn)
       (seq annotations) (recontextualize-annotations refn)
       (seq super-props) (update :super-props mapos refn)
       (seq equivs) (update :equivs mapos refn)
@@ -53,40 +48,42 @@
   (add-to-doc [this doc] (prot/add-object-property doc this))
   Annotatable
   (annotate [this {:keys [prop] :as ann}] (update-in this [:annotations :annotations] assoc prop ann))
-  (annotate [this prop text] (update-in this [:annotations :annotations] assoc prop (cowl.impl/annotation prop text)))
+  (annotate [this prop text] (update-in this [:annotations :annotations] assoc prop (annotation prop text)))
   (annotate [_ id prop text]
     (throw (ex-info "Object Properties do not contain other entities" {:id id :prop prop :text text})))
   (get-annotations [_] (vals (get annotations :annotations)))
   Property
-  (sub-property [this other] (prop-attr this :super-props other))
-  (equivalent [this other] (prop-attr this :equivs other))
-  (domain-of [this other] (prop-attr this :domain other))
-  (range-of [this other] (prop-attr this :range other))
-  (disjoint [this other] (prop-attr this :disjoints other))
-  (functional [this] (assoc this :fn? true))
+  (sub-property [this other] (prop-attr-binary this :super-props other))
+  (equivalent-prop [this other] (prop-attr-multi this :equivs other))
+  (domain-of [this other] (prop-attr-binary this :domain other))
+  (range-of [this other] (prop-attr-binary this :range other))
+  (disjoint-prop [this other] (prop-attr-multi this :disjoints other))
+  (functional [this] (prop-bool-attr this :fn?))
   (functional [this anns] (prop-bool-attr this :fn? anns))
   ObjectPropertyProtocol
-  (inverse [this other] (prop-attr this :inverses other))
-  (inverse-functional [this] (assoc this :inverse-fn? true))
+  (inverse [this other] (prop-attr-binary this :inverses other))
+  (inverse-functional [this] (prop-bool-attr this :inverse-fn?))
   (inverse-functional [this anns] (prop-bool-attr this :inverse-fn? anns))
-  (transitive [this] (assoc this :transitive? true))
+  (transitive [this] (prop-bool-attr this :transitive?))
   (transitive [this anns] (prop-bool-attr this :transitive? anns))
-  (symmetric [this] (assoc this :symmetric? true))
+  (symmetric [this] (prop-bool-attr this :symmetric?))
   (symmetric [this anns] (prop-bool-attr this :symmetric? anns))
-  (asymmetric [this] (assoc this :asymmetric? true))
+  (asymmetric [this] (prop-bool-attr this :asymmetric?))
   (asymmetric [this anns] (prop-bool-attr this :asymmetric? anns))
-  (reflexive [this] (assoc this :reflexive? true))
+  (reflexive [this] (prop-bool-attr this :reflexive?))
   (reflexive [this anns] (prop-bool-attr this :reflexive? anns))
-  (irreflexive [this] (assoc this :irreflexive? true))
+  (irreflexive [this] (prop-bool-attr this :irreflexive?))
   (irreflexive [this anns] (prop-bool-attr this :irreflexive? anns))
   TTLStreamable
   (ttl-emit [this stream] (cio/write-obj-prop stream this)))
 
 (defn object-property
-  [& args]
-  (let [anns (annotations args)
-        [_id] (drop (count anns) args)]
-    (->ObjectProperty _id {:annotations [anns]} os os os os os os false false false false false false false)))
+  ([_id]
+   (->ObjectProperty _id {:annotations []} os os os os os os false false false false false false false))
+  ([a & args]
+   (let [anns (annotation-map (cons a args))
+         [_id] (drop (dec (count anns)) args)]
+     (->ObjectProperty _id {:annotations anns} os os os os os os false false false false false false false))))
 
 (defn ensure-object-prop-in-doc
   [doc prop]
@@ -94,23 +91,21 @@
     ;; If the property is new to the document, update the doc to know about it
     (nil? (prot/get-object-property doc prop)) (prot/add-object-property (object-property prop))))
 
-(defrecord SubObjectPropertyOf [annotations prop super-property]
+(defrecord SubObjectPropertyOf [annotations prop other]
   AddressableElement
   (id [_] prop)
   DocumentElement
   (recontextualize [this refn] (-> this
                                    (update :prop refn)
-                                   (update :super-property refn)
+                                   (update :other refn)
                                    (recontextualize-annotations refn)))
   (type-label [_] "SubObjectPropertyOf")
   (add-to-parent [this parent] (prot/sub-property parent this))
   (add-to-doc [this doc]
-    (let [doc* (if (prot/get-object-property doc prop)
-                 ;; exists in the doc, so update it in the doc
-                 (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-                 ;; does not yet exist, so create, then add to the doc
-                 (prot/add-object-property doc (prot/sub-property (object-property prop) this)))]
-      (ensure-object-prop-in-doc doc* super-property)))
+    (add-object-prop-to-doc this doc prop other
+                            object-property
+                            #(prot/sub-property % this)
+                            ensure-object-prop-in-doc))
   Inlineable
   (legal-inline-subprop? [_] false)
   (legal-inline-equiv-prop? [_] false)
@@ -130,7 +125,7 @@
 
 (defrecord ObjectPropertyChain [props]
   DocumentElement
-  (recontextualize [this refn] (update this :props mapv refn))
+  (recontextualize [this refn] (update this :props #(mapv refn %)))
   (type-label [_] "ObjectPropertyChain")
   (add-to-parent [this parent]
     (if (instance? SubObjectPropertyOf parent)
@@ -152,19 +147,19 @@
   [& props]
   (->ObjectPropertyChain props))
 
-(defrecord InverseObjectProperties [annotations prop inv-prop]
+(defrecord InverseObjectProperties [annotations prop other]
   DocumentElement
   (recontextualize [this refn] (-> this
                                    (update :prop refn)
-                                   (update :inv-prop refn)
+                                   (update :other refn)
                                    (recontextualize-annotations refn)))
   (type-label [_] "InverseObjectProperties")
-  (add-to-parent [this parent] (prot/add-object-property parent this))
+  (add-to-parent [this parent] (prot/inverse parent this))
   (add-to-doc [this doc]
-    (let [doc* (if (prot/get-object-property doc prop)
-                 (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-                 (prot/add-object-property doc (prot/inverse (object-property prop) inv-prop)))]
-      (ensure-object-prop-in-doc doc* inv-prop)))
+    (add-object-prop-to-doc this doc prop other
+                            object-property
+                            #(prot/inverse % other)
+                            ensure-object-prop-in-doc))
   Inlineable
   (legal-inline-subprop? [_] true)
   (legal-inline-equiv-prop? [_] false)
@@ -176,10 +171,10 @@
 (defn inverse-obj-props
   [& args]
   (let [anns (annotations args)
-        [prop inv-prop :as remaining] (drop (count anns) args)]
+        [prop other :as remaining] (drop (count anns) args)]
     (when (seq remaining)
       (throw (ex-info "Too many arguments to inverse-obj-props" {:args remaining})))
-    (->InverseObjectProperties anns prop inv-prop)))
+    (->InverseObjectProperties anns prop other)))
 
 (defmulti add-obj-property-to-parent (fn [parent _] (type parent)))
 
@@ -196,7 +191,7 @@
   ;; this is an unusual workflow
   (if prop
     ;; if this is at least a property in the InverseObjectProperties, then set the inverse
-    (assoc parent :inv-prop child)
+    (assoc parent :other child)
     ;; if there is no initial property in the InverseObjectProperties, then set the initial property
     (assoc parent :prop child)))
 
@@ -232,14 +227,14 @@
   DocumentElement
   (recontextualize [this refn] (-> this
                                    (update :prop refn)
-                                   (update :props refn)
+                                   (update :props #(mapv refn %))
                                    (recontextualize-annotations refn)))
   (type-label [_] "EquivalentObjectProperties")
-  (add-to-parent [this parent] (prot/add-object-property parent this))
+  (add-to-parent [this parent] (prot/equivalent-prop parent this))
   (add-to-doc [this doc]
     (let [doc* (if (prot/get-object-property doc prop)
                  (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-                 (let [new-prop (reduce prot/equivalent (object-property prop) props)]
+                 (let [new-prop (reduce prot/equivalent-prop (object-property prop) props)]
                    (prot/add-object-property doc new-prop)))]
       (reduce ensure-object-prop-in-doc doc* props)))
   Inlineable
@@ -262,14 +257,14 @@
   DocumentElement
   (recontextualize [this refn] (-> this
                                    (update :prop refn)
-                                   (update :props refn)
+                                   (update :props #(mapv refn %))
                                    (recontextualize-annotations refn)))
   (type-label [_] "DisjointObjectProperties")
-  (add-to-parent [this parent] (prot/add-object-property parent this))
+  (add-to-parent [this parent] (prot/disjoint-prop parent this))
   (add-to-doc [this doc]
     (let [doc* (if (prot/get-object-property doc prop)
                  (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-                 (let [new-prop (reduce prot/disjoint (object-property prop) props)]
+                 (let [new-prop (reduce prot/disjoint-prop (object-property prop) props)]
                    (prot/add-object-property doc new-prop)))]
       (reduce ensure-object-prop-in-doc doc* props)))
   Inlineable
@@ -286,55 +281,57 @@
         [_id equivs] (drop (count anns) props)]
     (->DisjointObjectProperties anns _id equivs)))
 
-(defrecord ObjectPropertyDomain [annotations prop domain]
+(defrecord ObjectPropertyDomain [annotations prop other]
   AddressableElement
   (id [_] prop)
   DocumentElement
   (recontextualize [this refn] (-> this
                                    (update :prop refn)
-                                   (update :domain refn)
+                                   (update :other refn)
                                    (recontextualize-annotations refn)))
   (type-label [_] "ObjectPropertyDomain")
   (add-to-parent [this parent] (prot/domain-of parent this))
   (add-to-doc [this doc]
-    (if (prot/get-object-property doc prop)
-      (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-      (prot/add-object-property doc (prot/domain-of (object-property prop) this))))
+    (add-object-prop-to-doc this doc prop other
+                            object-property
+                            #(prot/domain-of % this)
+                            nil))
   TTLStreamable
   (ttl-emit [this stream] (cio/write-obj-prop-domain stream this)))
 
 (defn object-prop-domain
   [& args]
   (let [anns (annotations args)
-        [prop domain & r] (drop (count anns) args)]
+        [prop other & r] (drop (count anns) args)]
     (when (seq r)
-      (throw (ex-info "Unexpected extra arguments to object-prop-domain" {:prop prop :domain domain :extra r})))
-    (->ObjectPropertyDomain anns prop domain)))
+      (throw (ex-info "Unexpected extra arguments to object-prop-domain" {:prop prop :other other :extra r})))
+    (->ObjectPropertyDomain anns prop other)))
 
-(defrecord ObjectPropertyRange [annotations prop range]
+(defrecord ObjectPropertyRange [annotations prop other]
   AddressableElement
   (id [_] prop)
   DocumentElement
   (recontextualize [this refn] (-> this
                                    (update :prop refn)
-                                   (update :range refn)
+                                   (update :other refn)
                                    (recontextualize-annotations refn)))
   (type-label [_] "ObjectPropertyRange")
   (add-to-parent [this parent] (prot/range-of parent this))
   (add-to-doc [this doc]
-    (if (prot/get-object-property doc prop)
-      (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-      (prot/add-object-property doc (prot/range-of (object-property prop) this))))
+    (add-object-prop-to-doc this doc prop other
+                            object-property
+                            #(prot/range-of % this)
+                            nil))
   TTLStreamable
   (ttl-emit [this stream] (cio/write-obj-prop-range stream this)))
 
 (defn object-prop-range
   [& args]
   (let [anns (annotations args)
-        [prop range & r] (drop (count anns) args)]
+        [prop other & r] (drop (count anns) args)]
     (when (seq r)
-      (throw (ex-info "Unexpected extra arguments to object-prop-range" {:prop prop :range range :extra r})))
-    (->ObjectPropertyRange anns prop range)))
+      (throw (ex-info "Unexpected extra arguments to object-prop-range" {:prop prop :other other :extra r})))
+    (->ObjectPropertyRange anns prop other)))
 
 (defrecord FunctionalObjectProperty [annotations prop]
   AddressableElement
