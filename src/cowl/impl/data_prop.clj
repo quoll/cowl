@@ -77,9 +77,7 @@
   (legal-inline-subprop? [_] false)
   (legal-inline-equiv-prop? [_] false)
   (object-subproperty-expr? [_] true)
-  (object-property? [_] false)
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-sub-object-property stream this)))
+  (object-property? [_] false))
 
 (defn sub-data-prop
   "Accepts either child and a list of parents, with an optional annotation as the first argument"
@@ -110,9 +108,7 @@
   (legal-inline-subprop? [_] true)
   (legal-inline-equiv-prop? [_] false)
   (object-subproperty-expr? [_] false)
-  (object-property? [_] false)
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-rel-properties stream :equiv :data this)))
+  (object-property? [_] false))
 
 (defn equiv-data-props
   [& props]
@@ -140,9 +136,7 @@
   (legal-inline-subprop? [_] false)
   (legal-inline-equiv-prop? [_] false)
   (object-subproperty-expr? [_] false)
-  (object-property? [_] false)
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-rel-properties stream :disjoint :data this)))
+  (object-property? [_] false))
 
 (defn disjoint-data-props
   [& props]
@@ -164,9 +158,7 @@
     (add-data-prop-to-doc this doc prop other
                           data-property
                           #(prot/domain-of % this)
-                          nil))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-data-prop-domain stream this)))
+                          nil)))
 
 (defn data-prop-domain
   [& args]
@@ -190,9 +182,7 @@
     (add-data-prop-to-doc this doc prop other
                           data-property
                           #(prot/range-of % this)
-                          nil))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-data-prop-range stream this)))
+                          nil)))
 
 (defn data-prop-range
   [& args]
@@ -214,9 +204,7 @@
   (add-to-doc [this doc]
     (if (prot/get-data-property doc prop)
       (update-in doc [:dprop-idx prop] prot/add-to-parent this)
-      (prot/add-data-property doc (prot/functional (data-property prop) (:annotations this)))))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-fn-data-prop stream this)))
+      (prot/add-data-property doc (prot/functional (data-property prop) (:annotations this))))))
 
 (defn fn-data-prop
   [& args]

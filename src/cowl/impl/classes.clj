@@ -2,28 +2,183 @@
   {:doc "Class implementations for COWL"
    :author "Paula Gearon"}
   (:require [cowl.protocols :as prot]
-            [cowl.impl.common :refer [om os mapos]])
-  (:import [cowl.protocols DocumentElement AddressableElement ClassExpression]))
+            [cowl.impl.common :as common :refer [os mapos recontextualize-annotations
+                                                 annotation-map annotations]])
+  (:import [cowl.protocols DocumentElement AddressableElement ClassExpression ClassProtocol]))
+
+(defn class-attr-binary
+  "Updates attributes for a class with a single class expression, keeping annotations in sync"
+  [obj index {:keys [annotations other]}]
+  (-> obj
+      (update index conj other)
+      (update-in [:annotations index] conj annotations)))
+
+(defn class-attr-multi
+  "Updates attributes for a class with multiple class expressions, keeping annotations in sync"
+  [obj index {:keys [annotations exprs]}]
+  (-> obj
+      (update index (fnil into os) exprs)
+      (update-in [:annotations index] conj annotations)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Classes ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defrecord OWLClass [cls super-classes equivs disjoints disjoint-union]
+;; {:cls IRI
+;;  :annotations {:annotations {s/keyword Annotation}
+;;                :super-classes [ [Annotation] ]
+;;                :equivs [ [Annotation] ]
+;;                :disjoints [ [Annotation] ]
+;;                :disjoint-union [ [Annotation] ]}
+;;  :super-classes: OrderedSet
+;;  :equivs: OrderedSet
+;;  :disjoints: OrderedSet
+;;  :disjoint-union: OrderedSet }
+(defrecord OWLClass [cls annotations super-classes equivs disjoints disjoint-union]
   AddressableElement
   (id [_] cls)
   DocumentElement
   (type-label [_] "Class")
   (recontextualize [this refn]
     (cond-> (update this :cls refn)
+      (seq annotations) (common/recontextualize-annotations refn)
       (seq super-classes) (update :super-classes mapos refn)
       (seq equivs) (update :equivs mapos refn)
       (seq disjoints) (update :disjoints mapos refn)
       (seq disjoint-union) (update :disjoint-union mapos refn)))
   (add-to-parent [this doc] (prot/add-class doc this))
-  (add-to-doc [this doc] (prot/add-class doc this)))
+  (add-to-doc [this doc] (prot/add-class doc this))
+  ClassProtocol
+  (sub-class [this other] (class-attr-binary this :super-classes other))
+  (equivalent-class [this other] (class-attr-multi this :equivs other))
+  (disjoint-class [this other] (class-attr-multi this :disjoints other))
+  (disjoint-union-class [this other] (class-attr-multi this :disjoint-union other)))
 
 (defn owl-class
-  [_id]
-  (->OWLClass _id om om om om))
+  ([_id]
+   (->OWLClass _id {:annotations []} os os os os))
+  ([a & args]
+   (let [anns (annotation-map (cons a args))
+         [_id] (drop (dec (count anns)) args)]
+     (->OWLClass _id {:annotations anns} os os os os))))
+
+(defn ensure-class-in-doc
+  [doc cls]
+  (cond-> doc
+    ;; If the class is new to the document, update the doc to know about it
+    (nil? (prot/get-class doc cls)) (prot/add-class (owl-class cls))))
+
+(defn ensure-classes-from-expr
+  "Ensures all class IRIs from a class expression exist in the document"
+  [doc expr]
+  (let [classes (prot/get-classes expr)]
+    (if (set? classes)
+      (reduce ensure-class-in-doc doc classes)
+      (ensure-class-in-doc doc classes))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Class Axioms ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; SubClassOf := 'SubClassOf' '(' axiomAnnotations subClassExpression superClassExpression ')'
+(defrecord SubClassOf [annotations cls other]
+  AddressableElement
+  (id [_] (prot/id cls))
+  DocumentElement
+  (recontextualize [this refn] (-> this
+                                   (update :cls refn)
+                                   (update :other refn)
+                                   (recontextualize-annotations refn)))
+  (type-label [_] "SubClassOf")
+  (add-to-parent [this parent] (prot/sub-class parent this))
+  (add-to-doc [this doc]
+    (common/add-class-to-doc this doc cls other
+                             owl-class
+                             #(prot/sub-class % this)
+                             ensure-classes-from-expr
+                             false)))
+
+(defn sub-class-of
+  [& args]
+  (let [anns (annotations args)
+        [sub-expr super-expr & r] (drop (count anns) args)]
+    (when (seq r)
+      (throw (ex-info "Unexpected extra arguments to sub-class-of" {:sub sub-expr :super super-expr :extra r})))
+    (->SubClassOf anns sub-expr super-expr)))
+
+;; EquivalentClasses := 'EquivalentClasses' '(' axiomAnnotations ClassExpression ClassExpression { ClassExpression } ')'
+(defrecord EquivalentClasses [annotations cls exprs]
+  AddressableElement
+  (id [_] (prot/id cls))
+  DocumentElement
+  (recontextualize [this refn] (-> this
+                                   (update :cls refn)
+                                   (update :exprs #(mapv refn %))
+                                   (recontextualize-annotations refn)))
+  (type-label [_] "EquivalentClasses")
+  (add-to-parent [this parent] (prot/equivalent-class parent this))
+  (add-to-doc [this doc]
+    (common/add-class-to-doc this doc cls exprs
+                             owl-class
+                             #(reduce prot/equivalent-class % exprs)
+                             ensure-classes-from-expr
+                             true)))
+
+(defn equivalent-classes
+  [& exprs]
+  (let [anns (annotations exprs)
+        [cls & rest-exprs] (drop (count anns) exprs)]
+    (when (< (count rest-exprs) 1)
+      (throw (ex-info "EquivalentClasses requires at least 2 class expressions" {:exprs exprs})))
+    (->EquivalentClasses anns cls (vec rest-exprs))))
+
+;; DisjointClasses := 'DisjointClasses' '(' axiomAnnotations ClassExpression ClassExpression { ClassExpression } ')'
+(defrecord DisjointClasses [annotations cls exprs]
+  AddressableElement
+  (id [_] (prot/id cls))
+  DocumentElement
+  (recontextualize [this refn] (-> this
+                                   (update :cls refn)
+                                   (update :exprs #(mapv refn %))
+                                   (recontextualize-annotations refn)))
+  (type-label [_] "DisjointClasses")
+  (add-to-parent [this parent] (prot/disjoint-class parent this))
+  (add-to-doc [this doc]
+    (common/add-class-to-doc this doc cls exprs
+                             owl-class
+                             #(reduce prot/disjoint-class % exprs)
+                             ensure-classes-from-expr
+                             true)))
+
+(defn disjoint-classes
+  [& exprs]
+  (let [anns (annotations exprs)
+        [cls & rest-exprs] (drop (count anns) exprs)]
+    (when (< (count rest-exprs) 1)
+      (throw (ex-info "DisjointClasses requires at least 2 class expressions" {:exprs exprs})))
+    (->DisjointClasses anns cls (vec rest-exprs))))
+
+;; DisjointUnion := 'DisjointUnion' '(' axiomAnnotations Class disjointClassExpressions ')'
+(defrecord DisjointUnion [annotations cls exprs]
+  AddressableElement
+  (id [_] (prot/id cls))
+  DocumentElement
+  (recontextualize [this refn] (-> this
+                                   (update :cls refn)
+                                   (update :exprs #(mapv refn %))
+                                   (recontextualize-annotations refn)))
+  (type-label [_] "DisjointUnion")
+  (add-to-parent [this parent] (prot/disjoint-union-class parent this))
+  (add-to-doc [this doc]
+    (common/add-class-to-doc this doc cls exprs
+                             owl-class
+                             #(reduce prot/disjoint-union-class % exprs)
+                             ensure-classes-from-expr
+                             true)))
+
+(defn disjoint-union
+  [& args]
+  (let [anns (annotations args)
+        [cls & exprs] (drop (count anns) args)]
+    (when (< (count exprs) 2)
+      (throw (ex-info "DisjointUnion requires a class and at least 2 disjoint expressions" {:args args})))
+    (->DisjointUnion anns cls (vec exprs))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Class Expressions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

@@ -5,7 +5,7 @@
             [cowl.impl.common :refer [os prop-attr-binary prop-attr-multi prop-bool-attr annotation annotations annotation-map
                                       recontextualize-annotations mapos add-object-prop-to-doc]]
             [cowl.io :as cio])
-  (:import [cowl.protocols DocumentElement AddressableElement Annotatable TTLStreamable Inlineable Property
+  (:import [cowl.protocols DocumentElement AddressableElement Annotatable TTLStreamable Property
             ObjectPropertyProtocol]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; ObjectProperties ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -73,9 +73,7 @@
   (reflexive [this] (prop-bool-attr this :reflexive?))
   (reflexive [this anns] (prop-bool-attr this :reflexive? anns))
   (irreflexive [this] (prop-bool-attr this :irreflexive?))
-  (irreflexive [this anns] (prop-bool-attr this :irreflexive? anns))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-obj-prop stream this)))
+  (irreflexive [this anns] (prop-bool-attr this :irreflexive? anns)))
 
 (defn object-property
   ([_id]
@@ -105,14 +103,7 @@
     (add-object-prop-to-doc this doc prop other
                             object-property
                             #(prot/sub-property % this)
-                            ensure-object-prop-in-doc))
-  Inlineable
-  (legal-inline-subprop? [_] false)
-  (legal-inline-equiv-prop? [_] false)
-  (object-subproperty-expr? [_] true)
-  (object-property? [_] false)
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-sub-object-property stream this)))
+                            ensure-object-prop-in-doc)))
 
 (defn sub-object-prop
   "Accepts either child and a list of parents, with an optional annotation as the first argument"
@@ -134,14 +125,7 @@
                       {:parent parent :parent-type (type parent)}))))
   (add-to-doc [this _]
     (throw (ex-info "ObjectPropertyChain is not an axiom. Associate it with a property."
-                    {:chain this})))
-  Inlineable
-  (legal-inline-subprop? [_] true)
-  (legal-inline-equiv-prop? [_] false)
-  (object-subproperty-expr? [_] false)
-  (object-property? [_] false)
-  TTLStreamable
-  (ttl-emit [_ stream] (cio/write-property-chain stream props)))
+                    {:chain this}))))
 
 (defn property-chain
   [& props]
@@ -159,14 +143,7 @@
     (add-object-prop-to-doc this doc prop other
                             object-property
                             #(prot/inverse % other)
-                            ensure-object-prop-in-doc))
-  Inlineable
-  (legal-inline-subprop? [_] true)
-  (legal-inline-equiv-prop? [_] false)
-  (object-subproperty-expr? [_] false)
-  (object-property? [_] true)
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-inverse-property stream this)))
+                            ensure-object-prop-in-doc)))
 
 (defn inverse-obj-props
   [& args]
@@ -206,14 +183,7 @@
   (type-label [_] "ObjectInverseOf")
   (add-to-parent [this parent] (add-obj-property-to-parent parent this))
   (add-to-doc [this _]
-    (throw (ex-info "ObjectInverseOf is not an axiom. Associate it with a property." {:inverse-prop this})))
-  Inlineable
-  (legal-inline-subprop? [_] true)
-  (legal-inline-equiv-prop? [_] false)
-  (object-subproperty-expr? [_] false)
-  (object-property? [_] true)
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-inverse-property stream this)))
+    (throw (ex-info "ObjectInverseOf is not an axiom. Associate it with a property." {:inverse-prop this}))))
 
 (defn inverse-obj-prop
   [& args]
@@ -236,14 +206,7 @@
                  (update-in doc [:oprop-idx prop] prot/add-to-parent this)
                  (let [new-prop (reduce prot/equivalent-prop (object-property prop) props)]
                    (prot/add-object-property doc new-prop)))]
-      (reduce ensure-object-prop-in-doc doc* props)))
-  Inlineable
-  (legal-inline-subprop? [_] true)
-  (legal-inline-equiv-prop? [_] false)
-  (object-subproperty-expr? [_] false)
-  (object-property? [_] false)
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-rel-properties stream :equiv :obj this)))
+      (reduce ensure-object-prop-in-doc doc* props))))
 
 (defn equiv-obj-props
   [& props]
@@ -266,14 +229,7 @@
                  (update-in doc [:oprop-idx prop] prot/add-to-parent this)
                  (let [new-prop (reduce prot/disjoint-prop (object-property prop) props)]
                    (prot/add-object-property doc new-prop)))]
-      (reduce ensure-object-prop-in-doc doc* props)))
-  Inlineable
-  (legal-inline-subprop? [_] false)
-  (legal-inline-equiv-prop? [_] false)
-  (object-subproperty-expr? [_] false)
-  (object-property? [_] false)
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-rel-properties stream :disjoint :obj this)))
+      (reduce ensure-object-prop-in-doc doc* props))))
 
 (defn disjoint-obj-props
   [& props]

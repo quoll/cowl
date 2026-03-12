@@ -37,6 +37,12 @@
 (import-fn prot/reflexive)
 (import-fn prot/irreflexive)
 
+;; ClassProtocol
+(import-fn prot/sub-class)
+(import-fn prot/equivalent-class)
+(import-fn prot/disjoint-class)
+(import-fn prot/disjoint-union-class)
+
 ;; Core constructors from cowl.impl
 (import-fn impl/ontology)
 (import-fn impl/add)
@@ -44,6 +50,12 @@
 
 ;; Class constructors from cowl.impl.classes
 (import-fn cls/owl-class)
+
+;; Class axiom constructors from cowl.impl.classes
+(import-fn cls/sub-class-of)
+(import-fn cls/equivalent-classes)
+(import-fn cls/disjoint-classes)
+(import-fn cls/disjoint-union)
 
 ;; Class expression constructors from cowl.impl.classes
 (import-fn cls/object-intersection-of)

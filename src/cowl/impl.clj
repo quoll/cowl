@@ -10,8 +10,8 @@
             [cowl.impl.object-prop]
             [cowl.impl.data-prop]
             [cowl.impl.classes])
-  (:import [cowl.protocols DocumentElement AddressableElement Annotatable AnnotationTest TTLStreamable Inlineable
-            Property ObjectPropertyProtocol Document ClassExpression]
+  (:import [cowl.protocols DocumentElement AddressableElement Annotatable AnnotationTest Inlineable
+            Property ObjectPropertyProtocol ClassProtocol Document ClassExpression]
            [quoll.rdf IRI]
            [cowl.impl.object_prop ObjectProperty SubObjectPropertyOf ObjectPropertyChain InverseObjectProperties
             ObjectInverseOf EquivalentObjectProperties DisjointObjectProperties ObjectPropertyDomain
@@ -19,7 +19,8 @@
             IrreflexiveObjectProperty SymmetricObjectProperty AsymmetricObjectProperty TransitiveObjectProperty]
            [cowl.impl.data_prop DataProperty SubDataPropertyOf EquivalentDataProperties DisjointDataProperties
             DataPropertyDomain DataPropertyRange FunctionalDataProperty]
-           [cowl.impl.classes OWLClass ObjectIntersectionOf ObjectUnionOf ObjectComplementOf ObjectOneOf
+           [cowl.impl.classes OWLClass SubClassOf EquivalentClasses DisjointClasses DisjointUnion
+            ObjectIntersectionOf ObjectUnionOf ObjectComplementOf ObjectOneOf
             ObjectSomeValuesFrom ObjectAllValuesFrom ObjectHasValue ObjectHasSelf
             ObjectMinCardinality ObjectMaxCardinality ObjectExactCardinality
             DataSomeValuesFrom DataAllValuesFrom DataHasValue
@@ -60,7 +61,7 @@
 (defn doc-add-entity
   [{:keys [annotation-props] :as doc} index entity]
   (let [eid (prot/id entity)
-        annotation-props* (retrieve-annotation-props entity)
+        annotation-props* (common/retrieve-annotation-props entity)
         new-aprops (ominus annotation-props annotation-props*)]
     (cond-> (update doc index update eid struct-merge entity)
       (seq new-aprops) (update :annotation-props into new-aprops))))
@@ -70,13 +71,13 @@
   Annotatable
   (annotate [this ann]
     (let [property (:prop ann)
-          new-ann-props (ominus annotation-props (retrieve-annotation-props ann))]
+          new-ann-props (ominus annotation-props (common/retrieve-annotation-props ann))]
       (cond-> (update this :annotations assoc property ann)
         (seq new-ann-props) (update :annotation-props into new-ann-props))))
   (annotate [this prop text]
-    (let [new-prop (not (or (contains? owl-annotation-props prop)
+    (let [new-prop (not (or (contains? common/owl-annotation-props prop)
                             (contains? annotation-props prop)))]
-      (cond-> (update this :annotations assoc prop (annotation prop text))
+      (cond-> (update this :annotations assoc prop (common/annotation prop text))
         new-prop (update :annotation-props conj prop))))
   (annotate [this id prop text]
     (let [result (reduce (fn [doc index]
@@ -97,15 +98,7 @@
     (doc-add-entity this :class-idx cls))
   (get-object-property [_ id] (get oprop-idx id))
   (get-data-property [_ id] (get dprop-idx id))
-  (get-class [_ id] (get class-idx id))
-  TTLStreamable
-  (ttl-emit [_ stream]
-    (cio/write-prefixes stream prefixes)
-    (cio/start-doc stream _id version)
-    (cio/write-doc-annotations stream annotations)
-    (cio/write-declarations stream (keys class-idx) (keys oprop-idx) (keys dprop-idx) annotation-props datatypes (keys instance-idx))
-    (cio/write-obj-props stream (vals oprop-idx))
-    (cio/end-doc stream)))
+  (get-class [_ id] (get class-idx id)))
 
 (defn normalize
   "Normalize all ids in a document into IRIs according to the document prefixes"

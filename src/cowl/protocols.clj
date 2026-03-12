@@ -47,6 +47,11 @@
   (reflexive [this] [this annotations] "Declares this property to be reflexive")
   (irreflexive [this] [this annotations] "Declares this property to be irreflexive"))
 
+(defprotocol ClassProtocol
+  (sub-class [this other] "Makes this class a subclass of another class expression")
+  (equivalent-class [this other] "Declares this class equivalent to another class expression")
+  (disjoint-class [this other] "Declares this class disjoint from other class expressions")
+  (disjoint-union-class [this other] "Declares this class as a disjoint union of class expressions"))
 
 (defprotocol Inlineable
   (legal-inline-subprop? [this] "Indicates if this object is legal as a subproperty")

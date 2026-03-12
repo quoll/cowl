@@ -107,6 +107,52 @@
       (ensure-fn doc* other)
       doc*)))
 
+(defn add-class-to-doc
+  "Common implementation for add-to-doc for class axiom records.
+
+  Parameters:
+  - this: the axiom record being added
+  - doc: the document to add to
+  - cls: the class expression from the record
+  - other-or-exprs: either a single class expression or a vector of expressions
+  - class-constructor: function to construct a new class (e.g., owl-class)
+  - modifier-fn: function that takes a class and returns the modified class (e.g., #(prot/sub-class % this))
+  - ensure-fn: function to ensure classes from expression exist in doc
+  - multi?: true if other-or-exprs is a vector to reduce over"
+  [this doc cls other-or-exprs class-constructor modifier-fn ensure-fn multi?]
+  (let [cls-id (prot/id cls)
+        doc* (if (and cls-id (prot/get-class doc cls-id))
+               (update-in doc [:class-idx cls-id] prot/add-to-parent this)
+               (if cls-id
+                 (prot/add-class doc (modifier-fn (class-constructor cls-id)))
+                 doc))]
+    (if multi?
+      (reduce ensure-fn doc* other-or-exprs)
+      (ensure-fn doc* other-or-exprs))))
+
+(defn add-class-to-doc
+  "Common implementation for add-to-doc for class axiom records with [annotations cls other] or [annotations cls exprs] fields.
+
+  Parameters:
+  - this: the axiom record being added
+  - doc: the document to add to
+  - cls: the class expression from the record
+  - other-or-exprs: either a single class expression (for binary axioms) or a vector of expressions (for multi axioms)
+  - class-constructor: function to construct a new class (e.g., owl-class)
+  - modifier-fn: function that takes a class and returns the modified class (e.g., #(prot/sub-class % this))
+  - ensure-fn: optional function to ensure classes from expressions exist in doc (may be nil)
+  - multi?: true if other-or-exprs is a collection that should be reduced over for ensuring"
+  [this doc cls other-or-exprs class-constructor modifier-fn ensure-fn multi?]
+  (let [cls-id (prot/id cls)
+        doc* (if (prot/get-class doc cls-id)
+               (update-in doc [:class-idx cls-id] prot/add-to-parent this)
+               (prot/add-class doc (modifier-fn (class-constructor cls-id))))]
+    (if (and ensure-fn (or other-or-exprs multi?))
+      (if multi?
+        (reduce ensure-fn doc* other-or-exprs)
+        (ensure-fn doc* other-or-exprs))
+      doc*)))
+
 (extend-protocol prot/AddressableElement
   Object
   (id [this] (:id this))
@@ -132,8 +178,6 @@
   (object-property? [_] false))
 
 (extend-type IRI  ;; extending the interface
-  prot/TTLStreamable
-  (ttl-emit [i stream] (cio/write-iri stream i))
   prot/Inlineable
   (legal-inline-subprop? [_] true)
   (legal-inline-equiv-prop? [_] true)
@@ -213,11 +257,7 @@
   (annotate [this annotation] (update this :annotations conj annotation))
   (annotate [this prop text] (update this :annotations conj (Annotation. nil prop text)))
   (annotate [_ id prop text] (ex-info "Annotations do not contain other entities" {:id id :prop prop :text text}))
-  (get-annotations [_] annotations)
-  prot/AnnotationTest
-  (annotation? [_] true)
-  prot/TTLStreamable
-  (ttl-emit [this stream] (cio/write-annotation stream this)))
+  (get-annotations [_] annotations))
 
 (extend-protocol prot/AnnotationTest
   Object
