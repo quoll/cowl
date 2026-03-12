@@ -2,10 +2,11 @@
   {:doc "Object property implementations for COWL"
    :author "Paula Gearon"}
   (:require [cowl.protocols :as prot]
-            [cowl.impl.common :refer [os prop-attr-binary prop-attr-multi prop-bool-attr annotation annotations annotation-map
+            [cowl.impl.common :refer [os om prop-attr-binary prop-attr-multi prop-bool-attr annotation
+                                      leading-annotations annotation-map
                                       recontextualize-annotations mapos add-object-prop-to-doc]]
-            [cowl.io :as cio])
-  (:import [cowl.protocols DocumentElement AddressableElement Annotatable TTLStreamable Property
+            [cowl.io.iop :refer [Prop PropOther PropProps Props]])
+  (:import [cowl.protocols DocumentElement AddressableElement Annotatable Property
             ObjectPropertyProtocol]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; ObjectProperties ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -77,7 +78,7 @@
 
 (defn object-property
   ([_id]
-   (->ObjectProperty _id {:annotations []} os os os os os os false false false false false false false))
+   (->ObjectProperty _id {:annotations om} os os os os os os false false false false false false false))
   ([a & args]
    (let [anns (annotation-map (cons a args))
          [_id] (drop (dec (count anns)) args)]
@@ -90,6 +91,7 @@
     (nil? (prot/get-object-property doc prop)) (prot/add-object-property (object-property prop))))
 
 (defrecord SubObjectPropertyOf [annotations prop other]
+  PropOther
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -108,13 +110,14 @@
 (defn sub-object-prop
   "Accepts either child and a list of parents, with an optional annotation as the first argument"
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [child parent & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to sub-object-prop" {:child child :parent parent :extra r})))
     (->SubObjectPropertyOf anns child parent)))
 
 (defrecord ObjectPropertyChain [props]
+  Props
   DocumentElement
   (recontextualize [this refn] (update this :props #(mapv refn %)))
   (type-label [_] "ObjectPropertyChain")
@@ -132,6 +135,7 @@
   (->ObjectPropertyChain props))
 
 (defrecord InverseObjectProperties [annotations prop other]
+  PropOther
   DocumentElement
   (recontextualize [this refn] (-> this
                                    (update :prop refn)
@@ -147,7 +151,7 @@
 
 (defn inverse-obj-props
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop other :as remaining] (drop (count anns) args)]
     (when (seq remaining)
       (throw (ex-info "Too many arguments to inverse-obj-props" {:args remaining})))
@@ -174,6 +178,7 @@
 
 ;; This record can be used anywhere a property IRI can be
 (defrecord ObjectInverseOf [annotations prop]
+  Prop
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -187,11 +192,12 @@
 
 (defn inverse-obj-prop
   [& args]
-  (let [anns (annotations args)]
+  (let [anns (leading-annotations args)]
     (->ObjectInverseOf anns (drop (count anns) args))))
 
 ;; This record exists only to rewrite a object property
 (defrecord EquivalentObjectProperties [annotations prop props]
+  PropProps
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -210,11 +216,12 @@
 
 (defn equiv-obj-props
   [& props]
-  (let [anns (annotations props)
-        [_id equivs] (drop (count anns) props)]
-    (->EquivalentObjectProperties anns _id equivs)))
+  (let [anns (leading-annotations props)
+        [_id & equivs] (drop (count anns) props)]
+    (->EquivalentObjectProperties anns _id (into os equivs))))
 
 (defrecord DisjointObjectProperties [annotations prop props]
+  PropProps
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -233,11 +240,12 @@
 
 (defn disjoint-obj-props
   [& props]
-  (let [anns (annotations props)
+  (let [anns (leading-annotations props)
         [_id equivs] (drop (count anns) props)]
     (->DisjointObjectProperties anns _id equivs)))
 
 (defrecord ObjectPropertyDomain [annotations prop other]
+  PropOther
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -251,19 +259,18 @@
     (add-object-prop-to-doc this doc prop other
                             object-property
                             #(prot/domain-of % this)
-                            nil))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-obj-prop-domain stream this)))
+                            nil)))
 
 (defn object-prop-domain
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop other & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to object-prop-domain" {:prop prop :other other :extra r})))
     (->ObjectPropertyDomain anns prop other)))
 
 (defrecord ObjectPropertyRange [annotations prop other]
+  PropOther
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -277,19 +284,18 @@
     (add-object-prop-to-doc this doc prop other
                             object-property
                             #(prot/range-of % this)
-                            nil))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-obj-prop-range stream this)))
+                            nil)))
 
 (defn object-prop-range
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop other & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to object-prop-range" {:prop prop :other other :extra r})))
     (->ObjectPropertyRange anns prop other)))
 
 (defrecord FunctionalObjectProperty [annotations prop]
+  Prop
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -301,19 +307,18 @@
   (add-to-doc [this doc]
     (if (prot/get-object-property doc prop)
       (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-      (prot/add-object-property doc (prot/functional (object-property prop) (:annotations this)))))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-fn-obj-prop stream this)))
+      (prot/add-object-property doc (prot/functional (object-property prop) (:annotations this))))))
 
 (defn fn-object-prop
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to fn-object-prop" {:prop prop :extra r})))
     (->FunctionalObjectProperty anns prop)))
 
 (defrecord InverseFunctionalObjectProperty [annotations prop]
+  Prop
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -325,19 +330,18 @@
   (add-to-doc [this doc]
     (if (prot/get-object-property doc prop)
       (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-      (prot/add-object-property doc (prot/inverse-functional (object-property prop) (:annotations this)))))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-inv-fn-obj-prop stream this)))
+      (prot/add-object-property doc (prot/inverse-functional (object-property prop) (:annotations this))))))
 
 (defn inv-fn-object-prop
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to inv-fn-object-prop" {:prop prop :extra r})))
     (->InverseFunctionalObjectProperty anns prop)))
 
 (defrecord ReflexiveObjectProperty [annotations prop]
+  Prop
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -349,19 +353,18 @@
   (add-to-doc [this doc]
     (if (prot/get-object-property doc prop)
       (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-      (prot/add-object-property doc (prot/reflexive (object-property prop) (:annotations this)))))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-reflexive-obj-prop stream this)))
+      (prot/add-object-property doc (prot/reflexive (object-property prop) (:annotations this))))))
 
 (defn reflexive-object-prop
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to reflexive-object-prop" {:prop prop :extra r})))
     (->ReflexiveObjectProperty anns prop)))
 
 (defrecord IrreflexiveObjectProperty [annotations prop]
+  Prop
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -373,19 +376,18 @@
   (add-to-doc [this doc]
     (if (prot/get-object-property doc prop)
       (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-      (prot/add-object-property doc (prot/irreflexive (object-property prop) (:annotations this)))))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-irreflexive-obj-prop stream this)))
+      (prot/add-object-property doc (prot/irreflexive (object-property prop) (:annotations this))))))
 
 (defn irreflexive-object-prop
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to irreflexive-object-prop" {:prop prop :extra r})))
     (->IrreflexiveObjectProperty anns prop)))
 
 (defrecord SymmetricObjectProperty [annotations prop]
+  Prop
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -397,19 +399,18 @@
   (add-to-doc [this doc]
     (if (prot/get-object-property doc prop)
       (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-      (prot/add-object-property doc (prot/symmetric (object-property prop) (:annotations this)))))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-symmetric-obj-prop stream this)))
+      (prot/add-object-property doc (prot/symmetric (object-property prop) (:annotations this))))))
 
 (defn symmetric-object-prop
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to symmetric-object-prop" {:prop prop :extra r})))
     (->SymmetricObjectProperty anns prop)))
 
 (defrecord AsymmetricObjectProperty [annotations prop]
+  Prop
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -421,19 +422,18 @@
   (add-to-doc [this doc]
     (if (prot/get-object-property doc prop)
       (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-      (prot/add-object-property doc (prot/asymmetric (object-property prop) (:annotations this)))))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-asymmetric-obj-prop stream this)))
+      (prot/add-object-property doc (prot/asymmetric (object-property prop) (:annotations this))))))
 
 (defn asymmetric-object-prop
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to asymmetric-object-prop" {:prop prop :extra r})))
     (->AsymmetricObjectProperty anns prop)))
 
 (defrecord TransitiveObjectProperty [annotations prop]
+  Prop
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -445,13 +445,11 @@
   (add-to-doc [this doc]
     (if (prot/get-object-property doc prop)
       (update-in doc [:oprop-idx prop] prot/add-to-parent this)
-      (prot/add-object-property doc (prot/transitive (object-property prop) (:annotations this)))))
-  TTLStreamable
-  (ttl-emit [this stream] (cio/write-transitive-obj-prop stream this)))
+      (prot/add-object-property doc (prot/transitive (object-property prop) (:annotations this))))))
 
 (defn transitive-object-prop
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to transitive-object-prop" {:prop prop :extra r})))

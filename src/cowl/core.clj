@@ -1,10 +1,10 @@
 (ns cowl.core
   (:require [cowl.protocols :as prot]
             [cowl.impl :as impl]
+            [cowl.impl.common :as common]
             [cowl.impl.classes :as cls]
             [cowl.impl.object-prop :as oprop]
             [cowl.impl.data-prop :as dprop]
-            [cowl.io :as io]
             [cowl.util :as util :refer [import-fn]])
   (:gen-class))
 
@@ -46,7 +46,9 @@
 ;; Core constructors from cowl.impl
 (import-fn impl/ontology)
 (import-fn impl/add)
-(import-fn impl/annotation)
+
+;; Constructors from cowl.impl.common
+(import-fn common/annotation)
 
 ;; Class constructors from cowl.impl.classes
 (import-fn cls/owl-class)

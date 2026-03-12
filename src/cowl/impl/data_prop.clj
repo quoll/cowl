@@ -3,14 +3,9 @@
    :author "Paula Gearon"}
   (:require [cowl.protocols :as prot]
             [cowl.impl.common :refer [os prop-attr-binary prop-attr-multi prop-bool-attr annotation annotation-map
-                                      recontextualize-annotations mapos add-data-prop-to-doc]]
-            [cowl.io :as cio])
-  (:import [cowl.protocols DocumentElement AddressableElement Annotatable TTLStreamable Inlineable Property]))
-
-(defn annotations
-  "Get all annotations from the head of a seq"
-  [s]
-  (take-while #(and % (= "Annotation" (prot/type-label %))) s))
+                                      recontextualize-annotations mapos add-data-prop-to-doc leading-annotations]]
+            [cowl.io.iop :refer [Prop PropOther PropProps]])
+  (:import [cowl.protocols DocumentElement AddressableElement Annotatable Inlineable Property]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Data Properties ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -59,6 +54,7 @@
     (nil? (prot/get-data-property doc prop)) (prot/add-data-property (data-property prop))))
 
 (defrecord SubDataPropertyOf [annotations prop other]
+  PropOther
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -82,13 +78,14 @@
 (defn sub-data-prop
   "Accepts either child and a list of parents, with an optional annotation as the first argument"
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [child parent & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to sub-data-prop" {:child child :parent parent :extra r})))
     (->SubDataPropertyOf anns child parent)))
 
 (defrecord EquivalentDataProperties [annotations prop props]
+  PropProps
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -112,11 +109,12 @@
 
 (defn equiv-data-props
   [& props]
-  (let [anns (annotations props)
+  (let [anns (leading-annotations props)
         [_id equivs] (drop (count anns) props)]
     (->EquivalentDataProperties anns _id equivs)))
 
 (defrecord DisjointDataProperties [annotations prop props]
+  PropProps
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -140,11 +138,12 @@
 
 (defn disjoint-data-props
   [& props]
-  (let [anns (annotations props)
+  (let [anns (leading-annotations props)
         [_id equivs] (drop (count anns) props)]
     (->DisjointDataProperties anns _id equivs)))
 
 (defrecord DataPropertyDomain [annotations prop other]
+  PropOther
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -162,13 +161,14 @@
 
 (defn data-prop-domain
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop other & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to data-prop-domain" {:prop prop :other other :extra r})))
     (->DataPropertyDomain anns prop other)))
 
 (defrecord DataPropertyRange [annotations prop other]
+  PropOther
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -186,13 +186,14 @@
 
 (defn data-prop-range
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop other & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to data-prop-range" {:prop prop :other other :extra r})))
     (->DataPropertyRange anns prop other)))
 
 (defrecord FunctionalDataProperty [annotations prop]
+  Prop
   AddressableElement
   (id [_] prop)
   DocumentElement
@@ -208,7 +209,7 @@
 
 (defn fn-data-prop
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [prop & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to fn-data-prop" {:prop prop :extra r})))

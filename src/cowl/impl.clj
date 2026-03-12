@@ -5,7 +5,6 @@
             [tiara.data :as data :refer [ordered-map ordered-set]]
             [quoll.rdf :as rdf]
             [cowl.protocols :as prot]
-            [cowl.io :as cio]
             [cowl.impl.common :as common :refer [om os mm]]
             [cowl.impl.object-prop]
             [cowl.impl.data-prop]

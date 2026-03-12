@@ -62,5 +62,3 @@
 (defprotocol ClassExpression
   (get-classes [this] "Retrieves all class IRIs from this expression, recursively descending through nested expressions"))
 
-(defprotocol TTLStreamable
-  (ttl-emit [this stream] "Emits this object to a stream"))

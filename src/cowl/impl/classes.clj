@@ -3,7 +3,7 @@
    :author "Paula Gearon"}
   (:require [cowl.protocols :as prot]
             [cowl.impl.common :as common :refer [os mapos recontextualize-annotations
-                                                 annotation-map annotations]])
+                                                 annotation-map leading-annotations]])
   (:import [cowl.protocols DocumentElement AddressableElement ClassExpression ClassProtocol]))
 
 (defn class-attr-binary
@@ -96,7 +96,7 @@
 
 (defn sub-class-of
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [sub-expr super-expr & r] (drop (count anns) args)]
     (when (seq r)
       (throw (ex-info "Unexpected extra arguments to sub-class-of" {:sub sub-expr :super super-expr :extra r})))
@@ -122,7 +122,7 @@
 
 (defn equivalent-classes
   [& exprs]
-  (let [anns (annotations exprs)
+  (let [anns (leading-annotations exprs)
         [cls & rest-exprs] (drop (count anns) exprs)]
     (when (< (count rest-exprs) 1)
       (throw (ex-info "EquivalentClasses requires at least 2 class expressions" {:exprs exprs})))
@@ -148,7 +148,7 @@
 
 (defn disjoint-classes
   [& exprs]
-  (let [anns (annotations exprs)
+  (let [anns (leading-annotations exprs)
         [cls & rest-exprs] (drop (count anns) exprs)]
     (when (< (count rest-exprs) 1)
       (throw (ex-info "DisjointClasses requires at least 2 class expressions" {:exprs exprs})))
@@ -174,7 +174,7 @@
 
 (defn disjoint-union
   [& args]
-  (let [anns (annotations args)
+  (let [anns (leading-annotations args)
         [cls & exprs] (drop (count anns) args)]
     (when (< (count exprs) 2)
       (throw (ex-info "DisjointUnion requires a class and at least 2 disjoint expressions" {:args args})))

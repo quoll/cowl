@@ -4,7 +4,8 @@
   (:require [clojure.string :as str]
             [tiara.data :as data]
             [quoll.rdf :as rdf]
-            [cowl.protocols :as prot])
+            [cowl.protocols :as prot]
+            [cowl.io.iop :as iop :refer [EmbeddedAnnotation]])
   (:import [quoll.rdf IRI]))
 
 (def local-id (rdf/iri "#"))
@@ -48,8 +49,8 @@
 
 (defn prop-attr-binary
   "Updates attributes for a property, keeping annotations in sync"
-  [obj index {:keys [annotations other]}]
-  (assert (= (prot/id obj) (prot/id other)))
+  [obj index {:keys [annotations other] :as arg}]
+  (assert (= (prot/id obj) (prot/id arg)))
   (-> obj
       (update index conj other)
       (update-in [:annotations index] conj annotations)))
@@ -158,7 +159,7 @@
   (id [this] (:id this))
   nil
   (id [_] nil)
-  rdf/IRI  ;; protocol, not the interface
+  IRI
   (id [this] this)
   String
   (id [this] (rdf/iri this))
@@ -247,6 +248,7 @@
         (->iri prefixes elt)))))
 
 (defrecord Annotation [annotations prop value]
+  EmbeddedAnnotation
   prot/DocumentElement
   (type-label [_] "Annotation")
   (recontextualize [this refn] (cond-> (update this :prop refn)
@@ -275,7 +277,7 @@
          [prop value] (if (zero? lenr) (data/ordered-set t (first r)) (drop (dec lenr) r))]
      (->Annotation (into os anns) prop value))))
 
-(defn annotations
+(defn leading-annotations
   "Get all annotations from the head of a seq"
   [s]
   (take-while #(prot/annotation? %) s))
